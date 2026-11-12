@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://transferkit.local/schema/receipt.schema.json",
+  "title": "TransferKit Receipt",
+  "description": "Final receive-stage target acknowledgement. Every received item is classified as verified or failed; semantic model validation enforces items_verified + items_failed = items_received and one unique failure record per failed item.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "transfer_id", "received_at", "categories"],
+  "properties": {
+    "version": { "const": "1.0" },
+    "transfer_id": { "type": "string", "format": "uuid" },
+    "received_at": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "categories": {
+      "type": "object",
+      "propertyNames": {
+        "enum": ["photos", "videos", "audio", "documents", "downloads", "contacts", "calendar", "sms", "call_log", "apks", "settings", "app_data", "wifi_passwords", "launcher_layout", "accounts", "drm", "banking_apps", "two_factor_tokens"]
+      },
+      "additionalProperties": { "$ref": "#/$defs/category_receipt" }
+    }
+  },
+  "$defs": {
+    "category_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items_received", "items_verified", "items_failed", "failures"],
+      "properties": {
+        "items_received": { "type": "integer", "minimum": 0 },
+        "items_verified": { "type": "integer", "minimum": 0 },
+        "items_failed": { "type": "integer", "minimum": 0 },
+        "failures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/failure" }
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "stage", "reason"],
+      "properties": {
+        "item_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "stage": { "enum": ["RECEIVE", "CRC32_VERIFY", "SHA256_VERIFY", "RESTORE", "POST_VERIFY"] },
+        "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" }
+      }
+    }
+  }
+}

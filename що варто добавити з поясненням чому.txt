@@ -1,0 +1,925 @@
+РЕЄСТР ІДЕЙ ДЛЯ TRANSFERKIT
+
+Цей файл — живий журнал пропозицій і прогалин під час створення проєкту.
+Запис ідеї сам по собі не означає, що вона прийнята в поточний реліз.
+Після перевірки ідеї оновлювати її стан; прийняті зміни окремо додавати до
+PROJECT_SPEC.md, DECISIONS.md і WORK_CHECKLIST.md, коли це потрібно.
+
+Стани: заплановано / заблоковано / відкинуто з причиною.
+Оцінка можливості: підтверджено / теоретично / потребує дослідження / неможливо.
+
+======================================================================
+ІДЕЯ 1. Hybrid resume для великих streaming items
+======================================================================
+
+Дата: 2026-11-11
+
+Причина та доказ:
+У PROJECT_SPEC.md §5a та shared/protocol.md для streaming interruption
+визначено безпечний restart поточного item з нульового чанка: target
+truncate-ить його staging і скидає bytes_received. Це може повторно передати
+майже весь великий item після короткого обриву. CheckpointState/ResumePlan у
+shared/protocol.md вже містять next_expected_chunk, byte_offset і total_chunks,
+але streaming flow ще не зберігає частковий staging для resume. Самого ділення
+bytes_received на chunk_size недостатньо, якщо chunk layout не підтверджений
+durable checkpoint.
+
+Очікувана користь:
+Скоротити повторну передачу великих відео та архівів, коли на момент обриву
+вже надійшла значна частина item. Запропонований поріг (>100 MB і >50%) є
+початковою гіпотезою для вимірювання, а не підтвердженою оптимальною межею.
+
+Залежності й ризики:
+Потрібно зберігати target-side partial staging і durable per-chunk checkpoints,
+узгодити стан source/target у resume handshake та повторити фінальний SHA-256.
+Відновлюватися треба за next_expected_chunk/збереженим offset, а не обчислювати
+їх припущенням із загального bytes_received. Перемикання транспорту має
+зберігати ті самі checkpoints. Неправильний offset може пропустити або
+подвоїти байти; item не можна вважати відновленим до SHA-256 і
+post-verification. Для поточного сталого chunk layout новий wire format може
+не знадобитися; variable chunk size потребуватиме окремої версії протоколу.
+
+Оцінка можливості: підтверджено — існуючий Recovery checkpoint контракт уже
+описує відновлення з chunk boundary; streaming має зберігати цей checkpoint
+замість очищення staging. Самі пороги 100 MB / 50% поки не підтверджені.
+
+Стан: заплановано — окрема post-MVP оптимізація. Спершу завершити безпечний
+restart-item flow; пороги 100 MB / 50% перевірити на вимірах і фізичних тестах.
+
+======================================================================
+ІДЕЯ 2. Пріоритети категорій для Drop-Largest
+======================================================================
+
+Дата: 2026-11-11
+
+Причина та доказ:
+PROJECT_SPEC.md §5, етап 4a і shared/protocol.md описують Drop-Largest як
+вибір підмножини items за capacity; SpaceDecision передає kept_item_ids та
+skipped_item_ids, але не пріоритет категорій. Максимум items за кількістю
+може віддати місце багатьом невеликим фотографіям, хоча користувач хотів би
+зберегти всі контакти або документи першими.
+
+Очікувана користь:
+Дозволити користувачу вказати обов’язкові/першочергові категорії (наприклад,
+усі контакти, потім фото в межах місця) і зменшити небажане виключення важливих
+даних. Звіт і план пояснюватимуть, що саме пропущено через бюджет.
+
+Залежності й ризики:
+Потрібні зрозумілий UI порядку пріоритетів, формальна ціль оптимізації,
+розширення preflight calculator та SpaceDecision/report, deterministic tie
+breaking і тести. Зараз API records (зокрема контакти) лишаються batch до
+забезпечення idempotent restore, тому треба окремо вирішити, чи Drop-Largest
+пріоритети поширюються лише на file items, чи згодом на API-категорії теж.
+Пріоритет не повинен приховувати окремий item, який сам не вміщується, або
+створювати обіцянку, що всі items категорії вмістяться.
+
+Оцінка можливості: підтверджено — це можливо реалізувати над поточним
+item-level budget і kept/skipped ID contract.
+
+Стан: заплановано — після базового Drop-Largest; не входить до поточного
+M1b acceptance, доки не буде узгоджено семантику пріоритетів.
+
+======================================================================
+ІДЕЯ 3. Кнопка користувацької паузи
+======================================================================
+
+Дата: 2026-11-11
+
+Причина та доказ:
+PROJECT_SPEC.md §5a та shared/protocol.md переводять передачу до
+PAUSED_AWAITING_USER після невдалого reconnect timeout. У стан-машині ще не
+описано окремий user action «Пауза». Закриття екрана або застосунку не є
+скасуванням і саме по собі не повинно означати abandon.
+
+Очікувана користь:
+Дати користувачу контрольовану зупинку великої передачі без втрати
+підтвердженого прогресу та без очікування transport timeout.
+
+Залежності й ризики:
+Потрібні cooperative pause на межі chunk, зупинка подальшого надсилання,
+durable checkpoint/статус на обох сторонах, відображення причини паузи та
+resume з тим самим transfer_id. Pause під час атомарного restore/PackageInstaller
+може мати окрему семантику; не можна лишати target у невизначеному стані.
+
+Оцінка можливості: підтверджено — state persistence і chunk checkpoints
+підходять для контрольованої паузи, але transfer controller ще не реалізований.
+
+Стан: заплановано — додати до UI та протоколу після появи реального transfer
+controller; не трактувати закриття вікна як натискання Pause.
+
+======================================================================
+ІДЕЯ 4. Порядок batch restore для API-категорій
+======================================================================
+
+Дата: 2026-11-11
+
+Причина та доказ:
+PROJECT_SPEC.md §5, етап 4a та shared/protocol.md кажуть, що API records
+залишаються у batch до забезпечення idempotent restore, але не визначають
+порядок відновлення контактів, календаря, SMS та інших API-записів. Порядок
+може впливати на проміжне використання місця, залежності між записами та
+можливість відновити після часткового збою.
+
+Очікувана користь:
+Зробити обробку API-категорій передбачуваною, забезпечити потрібні
+referential dependencies і зменшити ризик часткового/неповторюваного restore.
+
+Залежності й ризики:
+Дослідити Android provider semantics окремо для ContactsContract,
+CalendarContract, SMS та майбутніх adapters; перевірити зв’язки записів,
+idempotency після process death і реальний вплив порядку на storage peak.
+Не сортувати механічно за розміром: це може порушити зв’язки або зробити
+повторне застосування неідемпотентним.
+
+Оцінка можливості: потребує дослідження.
+
+Стан: заблоковано — спершу потрібні provider-specific вимоги й вимірювання;
+порядок не фіксувати до підтвердження залежностей і recovery поведінки.
+
+======================================================================
+ІДЕЯ 5. Експорт staging на ПК для ручної діагностики/retry
+======================================================================
+
+Дата: 2026-11-11
+
+Причина та доказ:
+Пропозиція стверджує, що staging після SHA-256-перевірки й помилки restore
+зберігається 24 години. У поточних документах це не підтверджується:
+shared/protocol.md каже видаляти локальні тимчасові файли після завершення;
+30-денний TTL у PROJECT_SPEC.md §5a стосується перерваних resumable checkpoints,
+а не загального retention після помилки restore. Отже, передумова про 24 години
+потребує окремого рішення й не повинна подаватися як наявна гарантія.
+
+Очікувана користь:
+У Professional Mode користувач міг би зберегти перевірений staging item на ПК
+для ручного аналізу або повторної спроби без повторного читання джерела.
+
+Залежності й ризики:
+Потрібні явна згода і вибір місця експорту, авторизація/шифрування за потреби,
+зрозуміла політика зберігання та очищення, перевірка SHA-256 після експорту і
+вказівка, що копія може містити приватні фото, документи або записи. Невдалий
+restore може бути частковим чи небезпечним для повторного застосування; наявність
+staging не гарантує, що ручний retry коректний. Визначити окремо lifecycle для
+FAILED, FAILED_INTEGRITY та interrupted recovery files.
+
+Оцінка можливості: теоретично — потрібна модель безпеки й policy для різних
+класів даних; існуюча 24-годинна retention policy не підтверджена.
+
+Стан: заблоковано — до реалізації треба узгодити retention після помилки,
+consent, export format і правила безпечного повторного restore.
+
+======================================================================
+ІДЕЯ 6. Прямий USB network transport і transport hot-swap
+======================================================================
+
+Дата: 2026-11-11
+
+Причина та доказ:
+Пропозиція правильно виявляє неоднозначність фрази «USB/ADB»: офіційний
+ADB описаний як client/server на development machine та daemon на цілі,
+а USB debugging просить увімкнути режим розробника й підтвердити RSA-довіру
+хосту. Тому прямий phone-to-phone ADB не можна вважати штатним шляхом для
+звичайного користувача. Водночас слово «неможливо» надто категоричне: окремо
+зібраний ADB host client теоретично можна було б запускати на Android host,
+але він потребував би USB-host support, ADB-режиму/авторизації на другому
+телефоні та окремої перевірки безпеки; це не є вбудованим звичайним потоком.
+
+Android USB Host API прямо вказує, що не всі пристрої гарантовано підтримують
+host mode. Android Tethering модуль описує USB, Wi-Fi, Bluetooth та Ethernet
+downstream, але це не доводить, що довільна пара Android телефонів утворить
+локальний IP/TCP шлях між застосунками. Кероване з APK вмикання tethering
+може вимагати системного `TETHER_PRIVILEGED`; тому звичайному APK не можна
+обіцяти автоматичне перемикання через цей API. Доступність RNDIS/NCM, host
+role, маршрути, локальна досяжність і швидкість мають бути перевірені на
+конкретних моделях. Опубліковані у початковій рекомендації значення швидкості,
+`getInterfaceCount()==0` як доказ charge-only кабелю та сумісність «на будь-якому
+Android 8+» не підтверджені й не переносяться до вимог.
+
+Джерела:
+- https://developer.android.com/tools/adb
+- https://developer.android.com/develop/connectivity/usb/host
+- https://source.android.com/docs/core/ota/modular-system/tethering
+- https://android.googlesource.com/platform/packages/modules/Connectivity/+/refs/heads/main/Tethering/common/TetheringLib/src/android/net/TetheringManager.java
+
+Очікувана користь:
+Якщо фізичний прототип підтвердить доступний USB network link, можна буде
+передавати дані локальним TLS без ADB debugging/RSA на Android↔Android і
+продовжувати через інший транспорт після обриву. Користувач зможе бачити
+реальну доступність і виміряну швидкість, а не припущення про те, що USB
+завжди швидший за Wi-Fi.
+
+Залежності й ризики:
+Потрібні конкретний USB-C/OTG кабель, перевірка host capability та ролей на
+обох кінцях, зрозумілий ручний шлях увімкнути системне USB tethering, доступ
+до tethered network у застосунку, локальна TCP/TLS досяжність, тест на відмову
+від мобільного/зовнішнього маршруту та порівняння тривалого throughput із Wi-Fi.
+`UsbManager.getDeviceList()`/кількість USB interfaces не є універсальним
+доказом наявності data-ліній чи зарядного-only кабелю; для доступного IP-шляху
+спершу дослідити `ConnectivityManager`/`Network`/`LinkProperties`.
+
+Починати з ручного прототипу: користувач вмикає tethering у системних
+налаштуваннях, а застосунок лише знаходить мережу й пробує локальне TLS
+з’єднання. Якщо прототип працює, повторно використовувати існуючі
+`CheckpointState`/`ResumePlan` і Recovery handshake на межі chunk. Не додавати
+окремий TKXS wire frame, одночасні standby sockets, автоматичне перемикання,
+20% поріг чи 2-секундні acceptance до вимірів; почати з явної дії користувача
+і sustained throughput на реальній передачі. Wi-Fi може вимкнутися або бути
+повільнішим/швидшим; цей стан треба показувати чесно.
+
+Оцінка можливості: потребує дослідження — прямий ADB не є стандартним шляхом;
+USB tethering як локальний transport на наданих/інших стокових телефонах ще
+не перевірено. USB Host/Tethering існують як platform features, але не
+гарантують потрібну пару ролей та peer-to-peer TCP.
+
+Стан: заблоковано — до фізичного прототипу на різних стокових моделях та
+підтвердження локального TLS/маршруту. Не є вимогою MVP; базовий
+Android↔Android сценарій лишається Wi-Fi/тимчасова точка доступу без ADB.
+
+======================================================================
+ІДЕЯ 8. Уроки суміжних проєктів: незалежне підтвердження результату
+======================================================================
+
+Дата: 2026-11-11
+
+Причина та доказ:
+Перевірено першоджерела GitHub/PyPI для проєктів зі списку порівняння.
+AndroidMigrate описує SHA-256 content-addressed storage, checkpoints та
+clone-restore папкового дзеркала через ADB; це корисний референс для persistence
+і відновлення файлів, але не доказ транспортно-незалежного resume однієї
+телефон-до-телефону передачі TransferKit.
+
+tmiland-lab/adb-android-backup описує перевірку архівів і окремий post-restore
+audit на фізичному пристрої, а також прямо застерігає не покладати correctness
+лише на exit code `adb exec-out`. Його реалізація root-залежна і потенційно
+деструктивна, тому переносити її спосіб відновлення чи запускати на тестових
+телефонах TransferKit не слід; корисний лише принцип незалежної перевірки.
+
+Open Android Backup README підтверджує роботу на Windows/macOS/Linux,
+автоматичне відновлення контактів із vCard і view-only статус SMS/call logs.
+Отже, твердження, що він Linux-only або не відновлює контакти, неправильні.
+Його GitHub issues містять повідомлення користувачів про нульовий estimate чи
+«success» без результату; це не доводить наявність дефекту в кожному випадку,
+але дає хороші негативні QA-сценарії. Його companion app також показує, що
+ADB не гарантує доступ до кожної категорії.
+
+KSwitch підтверджує agentless ADB/media scan/manifest напрям, але README називає
+проєкт early version; Windows, Wi-Fi та incremental backup вказані як roadmap.
+Наявність manifest не є доказом SHA-256 чи recovery. Android Backup Vault
+заявляє app-data backup через legacy ADB backup protocol і сам перелічує
+backup verification як майбутню ідею — це застереження, не шаблон для
+TransferKit. AndroidMigrate та решта репозиторіїв не доводять, що весь набір
+можливостей таблиці вже реалізований у TransferKit. Посилання на
+`dmy-mobile-transfer-app` за вказаною назвою не вдалося підтвердити; не
+використовувати це твердження як факт без точного URL.
+
+Джерела:
+- https://github.com/Zyren-Lab/KSwitch
+- https://pypi.org/project/androidmigrate/0.1.3/
+- https://github.com/OutrageousStorm/android-backup-vault
+- https://github.com/mrrfv/open-android-backup
+- https://github.com/mrrfv/open-android-backup/issues
+- https://github.com/tmiland-lab/adb-android-backup
+
+Очікувана користь:
+Не допустити хибних успішних звітів через сам факт завершення transport
+команди, помилкових заяв про аналоги або сліпого перенесення функцій з іншого
+технічного контексту. Використати AndroidMigrate як довідкову модель checkpoint
+storage, а зовнішні issue reports — лише як підказки для негативних тестів.
+
+Залежності й ризики:
+У TransferKit уже зафіксовано: `OK` потребує реального restore та
+post-verification; фінальний receipt класифікує кожний прийнятий item; SHA-256
+mismatch є `FAILED_INTEGRITY`; `NO_DATA` окремий від недоступності. Тому не
+додавати дубльований протокол/функцію. Під час реалізації transport окремо
+перевіряти отримані bytes і фактичну ціль; exit code та ACK лишаються
+діагностичними сигналами, але самі по собі не доводять цілісність. GitHub
+issues — анекдотичні звіти, а не верифіковані відтворення. Код і ліцензії
+сторонніх проєктів не копіювати без окремої перевірки сумісності ліцензій.
+
+Оцінка можливості: підтверджено — незалежна перевірка вже є нормою в
+контрактах; сценарії помилкової порожньої/невдалої відповіді можна включати до
+майбутніх provider/transport acceptance tests.
+
+Стан: відкинуто з причиною — окрему нову можливість не додавати, бо гарантію
+покривають `AGENTS.md`, `shared/CONTRACTS.md` та `shared/protocol.md`. Залишити
+цей запис як перевірений референс і перевіряти зазначені негативні сценарії під
+час реалізації пунктів 023/025/037 та фізичного acceptance.
+
+
+======================================================================
+ІДЕЯ 9. Групове перенесення split APK як єдиного встановлюваного пакета
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Під час реалізації пункту 040 підтверджено, що `ApplicationInfo.sourceDir`
+показує base APK, а `splitSourceDirs` може містити додаткові обов’язкові APK.
+Поточний `ApkProvider` навмисно рахує такі пакети окремо й не передає їх як
+повний застосунок. Окремі base/configuration splits не утворюють гарантовано
+встановлюваний APK; manifest одного item не описує необхідний пакетний набір.
+
+Очікувана користь:
+Підтримати перенесення більшої кількості сучасних застосунків без хибного
+повідомлення «APK готовий до встановлення», зберігши package identity,
+версію, split names/ordering та цілісність кожного файла.
+
+Залежності й ризики:
+Потрібні групова модель manifest item-ів, перевірка узгоджених split variants,
+PackageInstaller multi-package/session semantics і окреме підтвердження
+користувача на пакет. Версія/ABI/екранна щільність target можуть не відповідати
+source splits; частковий набір не можна відновлювати. Системні packages із
+platform signature залишаються поза звичайним sideload restore.
+
+Оцінка можливості: теоретично — Android PackageInstaller підтримує пакетні
+сесії, але сумісність набору split-ів і end-to-end install/rollback треба
+підтвердити на різних версіях Android та OEM.
+
+Стан: заплановано — поза поточним single-file MVP. До окремої реалізації
+`ApkProvider` звітує кількість пропущених split packages і не маскує їх під
+успішний export.
+
+======================================================================
+ІДЕЯ 10. Опційно залишати екран активним під час передачі
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Android `FLAG_KEEP_SCREEN_ON` утримує екран активним, поки вікно застосунку
+видиме; коли застосунок переходить у фон, система знову дозволяє екрану згаснути.
+`WindowManager.LayoutParams.screenBrightness` є тимчасовим override яскравості
+цього вікна в діапазоні 0..1 і не змінює глобальне налаштування системи.
+Doze починається за вимкненого екрана на нерухомому пристрої без заряджання та
+може обмежувати мережеву й CPU-активність. Foreground Service важливий для
+довгої роботи й повідомляє користувача, але документація не обіцяє абсолютний
+захист від зупинки процесу чи всіх мережевих/OEM-обмежень.
+
+Джерела:
+- https://developer.android.com/develop/background-work/background-tasks/awake/screen-on
+- https://developer.android.com/reference/android/view/WindowManager.LayoutParams#screenBrightness
+- https://developer.android.com/develop/background-work/services
+- https://developer.android.com/training/monitoring-device-state/doze-standby
+
+Очікувана користь:
+Поки користувач дивиться на активну передачу, він може не давати дисплею
+автоматично згаснути та бачити progress/status. За окремим opt-in можна
+тимчасово знизити window brightness, не змінюючи системні налаштування й не
+вимагаючи дозволу `WRITE_SETTINGS`.
+
+Залежності й ризики:
+Потрібен активний transfer progress UI та життєвий цикл, який зберігає й
+відновлює попередні window flags/brightness. Екран увесь час споживає заряд;
+надто темне значення може бути нечитабельним, а тривалий статичний екран не
+стає безпечним для OLED лише від анімації одного progress indicator. Натискання
+кнопки живлення може вимкнути екран; коли Activity у фоні `FLAG_KEEP_SCREEN_ON`
+не діє. Не заявляти, що опція сама гарантує роботу FGS/мережі або обходить
+OEM-оптимізації. Не вимагати безперервної анімації: показувати зміну стану й
+прогрес без зайвого навантаження.
+
+Оцінка можливості: підтверджено — потрібні window APIs є в Android SDK і не
+вимагають спеціального дозволу; сприйняття значень яскравості та довга робота
+на конкретних OLED/LCD/OEM потребують фізичного дослідження.
+
+Стан: заплановано — створено окремий `TransferProgressScreen` scaffold з
+opt-in keep-awake default off, per-window dimmer 10–30% (default 15%) і
+відновленням window state у Compose lifecycle. Його ще не підключено до живого
+transfer; callbacks pause/cancel не інтегровані. Він не підміняє Foreground
+Service, durable checkpoints або Recovery. На S20/API 33 та M31/API 31
+перевірити читабельність, конфігураційні зміни й відновлення window state;
+відсутність взаємодії не є дозволом змінювати глобальну яскравість.
+
+
+======================================================================
+ІДЕЯ 11. Передзбіркова діагностика Gradle, Android SDK та ADB
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Під час попередніх локальних робіт Android build використовував Gradle Wrapper
+8.7, тоді як системний Gradle 9.8.2 мав окрему помилку native-platform.dll.
+На машині також співіснували `C:\Windows\adb.exe` і SDK `platform-tools\adb.exe`;
+перемикання клієнтів перезапускає спільний server іншої версії. Два телефони
+роблять bare `adb get-state` неоднозначним. Невідповідність `JAVA_HOME`,
+`ANDROID_HOME`, `ANDROID_SDK_ROOT` і `local.properties sdk.dir` може виглядати
+як помилка коду або відсутні API platform/build-tools. `adb-shell` був у
+requirements, але не імпортувався Python source, бо Station викликає ADB
+executable.
+
+Очікувана користь:
+Зупиняти типові помилки середовища до Gradle compilation; давати конкретну
+дію для JDK/API/Build Tools, не перевстановлювати робочий SDK через socket
+permission, використовувати єдиний ADB і serial. Прибрати непотрібне
+встановлення `adb-shell` скорочує dependency surface і час setup.
+
+Залежності й ризики:
+Потрібні однакові toolchain pins у Gradle/doctor/docs; preflight має розрізняти
+blocking issue і warning та не запускати build. Прихована різниця між env
+variables і `local.properties` повинна бути показана, а не виправлятися
+автоматично. ADB listing може запускати daemon, тому це має бути окремий
+явний прапорець; звичайний build preflight не торкається телефонів.
+
+Оцінка можливості: підтверджено — усі названі toolchain paths/версії зафіксовані
+в проєкті, а ADB/Gradle викликаються окремо; точність кожного діагностичного
+повідомлення потребує запуску у штатному PowerShell і на чистому SDK setup.
+
+Стан: заплановано — `android-client/doctor.ps1` та
+`BUILDING_AND_TESTING.md` створені як opt-in/manual preflight; його не вбудовано
+в наявну APK build команду, доки не перевірено false positive/negative.
+`adb-shell` прибрано з runtime requirements. Після окремого дозволу на
+перевірки пройти сценарії JDK/SDK mismatch, wrapper, два ADB клієнти,
+unauthorized/offline та кілька пристроїв; лише потім вирішити, чи інтегрувати
+preflight у звичайну build команду.
+
+
+======================================================================
+ІДЕЯ 12. BLE як допоміжний канал виявлення та Recovery
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Пропозиція користувача описує BLE лише для discovery, коротких pairing/control
+повідомлень і підказок Recovery, залишаючи байти файлів на Wi-Fi/USB. Такий
+поділ архітектурно можливий, але не є прийнятою вимогою TransferKit. Твердження
+про «приблизно 10 кбіт/с» і «20–50 КБ/с» суперечать одне одному: 10 кбіт/с —
+приблизно 1,25 КБ/с до накладних витрат; універсальної швидкості для BLE немає.
+На Android 12+ scan/advertise/connect вимагають окремих runtime permissions;
+CompanionDeviceManager може допомогти з початковим пошуком/асоціацією, але сам
+не встановлює GATT-з’єднання й не гарантує безперервне сканування. Android
+дозволяє підтримувати фоновий GATT за певних умов (connectedDevice FGS або
+companion-device APIs), але процес може бути завершений системою, а з ним —
+звичайне GATT-з’єднання. Android 10+ також забороняє звичайному застосунку
+вмикати/вимикати Wi-Fi; BLE не може самостійно перепід’єднати телефон до
+мережі чи обійти системне підтвердження підключення.
+
+Джерела:
+- https://developer.android.com/develop/connectivity/bluetooth/bt-permissions
+- https://developer.android.com/develop/connectivity/bluetooth/companion-device-pairing
+- https://developer.android.com/develop/connectivity/bluetooth/ble/background
+- https://developer.android.com/about/versions/10/privacy/changes#enable-disable-wifi
+- https://developer.android.com/develop/background-work/services/fgs/service-types#connected-device
+
+Очікувана користь:
+Після окремого security/UX дослідження BLE може знаходити вже пов’язаного
+peer-а та передавати короткий аутентифікований resume hint (наприклад, що peer
+повернувся в мережу). Це потенційно зменшить ручний повторний пошук. Воно не
+замінює QR/явне підтвердження для первинної довіри і не є транспортом payload.
+
+Залежності й ризики:
+Потрібні threat model і взаємна автентифікація до передачі адреси/токена,
+захист від replay/spoofing, rotation приватних BLE identifiers, runtime
+permissions та UX для відмови, foreground/companion lifecycle, vendor/API
+сумісність і вимірювання витрат батареї. Не передавати секрет у відкритому
+advertising payload. Не обіцяти безшовну роботу після process death чи
+автоматичне керування Wi-Fi; при відсутності BLE має працювати QR/ручний flow.
+Пропозиція не повинна додавати дозволи до MVP без доказу користі.
+
+Оцінка можливості: теоретично — короткий BLE control channel підтримується
+Android API, але повний phone-to-phone background сценарій, захищене pairing,
+енергоспоживання та OEM сумісність потребують дослідження. Універсальне
+числове твердження про throughput не прийнято.
+
+Стан: заплановано — лише дослідницька пропозиція. У код, manifest permissions,
+`PROJECT_SPEC.md` та прийняті рішення не додавати, доки не буде окремо
+перевірено feasibility, security model і цінність проти QR + Wi-Fi/USB resume.
+Номер D-028 у надісланому тексті не використано: він уже зайнятий рішенням про
+durable Android receiver checkpoints; якщо ідею буде прийнято, видати наступний
+вільний D-ID.
+
+
+======================================================================
+ІДЕЯ 13. Wi-Fi Direct як Android P2P транспорт; Aware/NFC/UWB — дослідити окремо
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Wi-Fi Direct може створити пряме P2P з'єднання без спільного роутера; Android
+надає discovery/connection API, а передавати payload можна звичайними sockets.
+Для target API 33+ потрібен runtime `NEARBY_WIFI_DEVICES`, для старіших
+target/API Android вказує location permission; пристрій і поточний стан Wi-Fi
+потрібно перевіряти під час роботи. Wi-Fi Aware теж має Android API 26+, але
+наявність feature не гарантована, доступність може змінюватися і залежить від
+стану/співіснування Wi-Fi radio. Тому наведені у пропозиції швидкості не є
+гарантією для всіх телефонів і не приймаються як acceptance threshold.
+
+NFC Android Beam/NDEF peer push вилучено з API 29; звичайне читання NDEF tag не
+означає універсальний обмін телефоном-до-телефону. UWB в Android призначений
+для ranging і вимагає окремого out-of-band discovery/обміну параметрами, тому
+не є файловим каналом чи самостійним способом знайти peer-а.
+
+Джерела:
+- https://developer.android.com/develop/connectivity/wifi/wifip2p
+- https://developer.android.com/develop/connectivity/wifi/wifi-aware
+- https://developer.android.com/reference/android/nfc/NfcAdapter.CreateNdefMessageCallback
+- https://developer.android.com/develop/connectivity/uwb
+
+Очікувана користь:
+Android-to-Android TransferKit зможе з'єднати два телефони напряму, коли немає
+спільної мережі Wi-Fi. Це потенційний додатковий транспорт після завершення
+автентифікованого socket/TLS шару; Wi-Fi Direct не змінює manifest/chunk/receipt
+контракти. Aware може бути ще одним runtime-опційним профілем, якщо перевірка
+feature і пристроїв доведе практичну користь.
+
+Залежності й ризики:
+Потрібні підтримка P2P на обох пристроях, перевірка стану radio, явні runtime
+permissions, з'єднання/маршрутизація sockets, timeout/recovery, тестування OEM
+відмінностей та автентифікація peer-а поверх каналу. Перший scope — Android ↔
+Android; Windows Station, Wi-Fi Direct між Windows і телефоном та швидкість на
+інших моделях цим не підтверджуються. Не додавати Wi-Fi permissions до APK,
+доки профіль не прийнятий і UX/permission path не спроєктований.
+
+Оцінка можливості: теоретично — Android має потрібні P2P API; сумісність,
+швидкість, стабільність і coexistence потребують вимірювань на цільових OEM.
+
+Стан: заплановано — дослідити після завершення authenticated listener/TLS
+transport. Wi-Fi Direct/Aware не оголошені підтримуваними, у manifest/API код не
+додані. NFC/UWB не рекомендовані як файловий транспорт; NFC P2P і Beam не
+обіцяти.
+
+
+======================================================================
+ІДЕЯ 14. Акустичний bootstrap для сполучення, коли камера не працює
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Звук може передати короткий rendezvous marker між двома телефонами, коли QR
+сканування неможливе через розбиту/розфокусовану камеру. У IEEE роботі про
+near-ultrasonic communication для споживчих телефонів описано сигнал у
+18.5–20 kHz і raw rate близько 94.5 bit/s для короткого proximity token — цього
+достатньо для discovery/bootstrap, але непридатно для файлів. Android вимагає
+`RECORD_AUDIO`, це dangerous runtime permission; системний мікрофонний privacy
+toggle, дозволи та foreground lifecycle впливають на роботу. Частотна відповідь
+динаміка/мікрофона та аудіообробка відрізняються між моделями, тому near-ultrasound
+не можна вважати гарантовано нечутним або сумісним.
+
+Джерела:
+- https://getreuer.info/papers/getreuer2018ultrasonic/index.html
+- https://developer.android.com/media/platform/mediarecorder
+- https://developer.android.com/guide/topics/permissions/overview
+
+Очікувана користь:
+Якщо QR недоступний, користувач може явно натиснути «Сполучити звуком» на
+обох відкритих застосунках. Короткий акустичний сигнал знаходить відповідний
+peer або передає лише випадковий короткоживучий rendezvous ID; далі основний
+обмін іде через окремий захищений Wi-Fi/USB канал. Це резерв для discovery, не
+заміна Wi-Fi Direct/USB і не канал для вмісту файлів.
+
+Залежності й ризики:
+На обох телефонах потрібні робочі мікрофон і динамік; на приймачі — окремо
+пояснений користувачу `RECORD_AUDIO`, явна дія, foreground screen та короткий
+тайм-аут. Сигнал чутний/перехоплюваний поблизу, може повторюватися або бути
+підроблений; його не можна використовувати як bearer secret чи єдиний доказ
+довіри. Потрібні випадковий одноразовий nonce/TTL, захищене продовження
+handshake і явне підтвердження однакової короткої SAS на обох екранах; PCM не
+зберігати й не записувати в логи. Треба перевірити audible і near-ultrasonic
+режими, шумозаглушення/AGC, направлення телефонів, доступність для людей з
+підвищеною чутливістю до високих частот і фактичну роботу на S20 Ultra/M31.
+Після відмови від permission має залишатися QR/ручний кодовий fallback.
+
+Оцінка можливості: теоретично — для короткого proximity/bootstrap обміну; точна
+надійність на Android-пристроях TransferKit потребує дослідження. Файлова
+передача через звук — неможлива в межах практичного сценарію проєкту.
+
+Стан: заплановано — дослідницький fallback для несправної камери. Не додавати
+`RECORD_AUDIO` до production manifest і не вважати акустичний peer trusted,
+поки не визначені протокол, SAS UX, privacy flow та фізичний acceptance на
+кількох різних моделях.
+
+
+======================================================================
+ІДЕЯ 15. Автентифікація майбутнього USB/ADB listener до manifest frame
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Windows `UsbAdbTransport` відправляє `TKMF`/`TKCH`, а Android
+`ReceiverStreamHandler` передає frames у durable receiver. Фізична перевірка
+показала, що listener має приймати дані лише після автентифікованої сесії;
+сам ADB forward і CRC/SHA цього не доводять. Поточна реалізація відкриває
+abstract `LocalServerSocket` лише з user-started foreground service і додатково
+перевіряє UID peer-а.
+
+Android надає `LocalSocket.getPeerCredentials()` для читання credentials
+підключеного peer-а; UID `adbd` може відрізнятись на stock/root конфігураціях,
+тому його слід вважати defense-in-depth і перевірити на цільових пристроях.
+`TKMF`/`TKCH` CRC/SHA перевіряють цілісність bytes, але не автентифікують
+відправника.
+
+Джерела:
+- https://developer.android.com/reference/android/net/LocalSocket#getPeerCredentials()
+- `transferkit/transport/usb_adb.py`
+- `android-client/app/src/main/kotlin/com/transferkit/client/transport/ReceiverStreamHandler.kt`
+- `shared/protocol.md` § «Framing для USB/ADB local socket»
+
+Очікувана користь:
+До першого manifest receiver переконується, що підключення належить очікуваній
+ADB transfer-сесії. 32-byte token з TTL п’ять хвилин прив’язаний до
+`transfer_id`; server nonce і HMAC-SHA-256 захищають proof від replay. Після
+успішної перевірки token споживається. Після отримання всіх terminal item
+results sender надсилає `TKFN` і отримує schema-validated receipt у `TKRC`.
+
+Залежності й ризики:
+Token йде окремим ADB control socket, не через `adb shell am ... --es`:
+передача в command arguments розкриває секрет процесному оточенню й не має
+nonce-bound replay protection. Listener запускається лише з user action; FGS
+показує стан і UI може його зупинити. На невірний HMAC socket закривається, але
+pending token залишається для повтору; новий offer для того самого transfer ID
+може замінити pending token. `TKFN` вимагає від target перевірити завершеність
+усіх manifest items перед `TKRC`. Поточна реалізація не є restore: receipt
+фіксує receive/integrity, а не destination post-verification. Android source
+acquisition, Windows Station orchestration/report UI та disconnect recovery
+ще потрібні. `LocalServerSocket.accept()` не має `setSoTimeout`; поки listener
+активний, він живе у foreground service до явного stop.
+
+Оцінка можливості: підтверджено для USB/ADB receiver на Samsung S20 Ultra/API 33
+та stock M31/API 31. 2026-11-12 Python suite пройшла 86/86, Android unit —
+33/33, instrumentation — 14/14 на кожному телефоні. Після rebuild 64 KiB
+synthetic item пройшов 16 chunks, обидва пристрої повернули schema-valid TKRC
+`verified=1/1`, а незалежний target SHA-256 збігся з джерелом. Додатковий S20
+smoke зберіг отриману квитанцію у `test-results/receipt-s20.json`; файл знову
+пройшов `receipt.schema.json`. На M31 неправильний HMAC відхилено без
+споживання token, після чого валідний proof з тим самим token пройшов.
+Застарілий persisted `LISTENING` після process restart виявлено й усунуто: UI
+тепер використовує стан сервісу поточного процесу.
+
+Стан: реалізовано й фізично перевірено для receive/receipt API; Python має
+ACK-based progress callback і атомарний receipt JSON writer/CLI output. Залишено
+частково запланованим у WORK_CHECKLIST 051 до Windows Station UI/orchestrator,
+Android source streaming, restore/post-verification report і disconnect
+acceptance. Це не вимагає root і не додає Android permissions. Synthetic
+receipt-backed items з тесту залишилися у приватному inbox; автоматично їх не
+видаляти.
+
+Оновлення стану, 2026-11-12:
+Receipt тепер також зберігається у SQLite `TransferHistory` як незмінний,
+canonical і schema-validated документ. Додано окремі Android/Python потокові
+примітиви: Android відправляє manifest/chunks після matching ACK і повторно
+хешує підготовлене джерело; Python relay перевіряє chunk framing та збіг ACK
+цілі перед підтвердженням джерелу. Додані Android authenticated source listener,
+foreground-service/UI lifecycle, Python `UsbAdbSourceTransport` і relay мають
+component/unit coverage. Station тепер має user-confirmed source→target receive
+entry point: перевіряє джерельний fingerprint, пише ACK checkpoints і receipt у
+SQLite history, показує підтверджені байти; UI прямо зазначає, що restore не
+виконується. Після цієї зміни Python suite — 98/98, Android unit — 37/37 та
+instrumentation — 16/16 на кожному з Samsung A04e/API 33 і Motorola moto g06/API
+35. На обох нових телефонах фізично перевірено лише Windows→Android synthetic
+receive/receipt/hash. Новий фізичний Android source→target шлях через Station,
+restore/post-verification і disconnect/recovery acceptance ще не пройшли.
+Тимчасові APK з A04e/moto g06 після тестів видалені; старі synthetic inbox
+items S20/M31 автоматично не очищені. Ідея 15 для receiver/auth реалізована,
+інтеграційний пункт 051 залишається частковим до hardware acceptance/report.
+
+
+Оновлення стану, 2026-11-12: фізично виконано authenticated Android source→target receive на Samsung A04e/API 33 → Motorola moto g06/API 35 із синтетичним 65 536-byte `downloads` item. Listener-и запущені з Android UI; Station session backend (той самий `run_authenticated_usb_adb_transfer`, який викликає Station worker) завершив relay і зберіг receipt у локальній history. Receipt schema-valid, `verified=1/1`, `failed=0`; незалежні source/target SHA-256 однакові. Це не повний desktop Station UI test і не restore/post-verification/report. Тимчасовий файл і debug APK видалені, app-private test transfer очищений uninstall-ом, keep-awake повернений у вимкнений стан. Загальний пункт 051 лишається частковим до desktop UI, restore/report і disconnect/recovery acceptance. У поточній перевірці S20 mDNS рекламував TLS endpoint, але TCP connect був відхилений; M31 mDNS endpoint не показався.
+
+======================================================================
+ІДЕЯ 16. ACK-based Transfer Monitor і незалежне ADB спостереження
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Надана специфікація об'єднує корисний моніторинг реального transfer із
+окремим USB protocol analyzer. У TransferKit уже є `UsbAdbTransport.send_file()`
+callback `on_chunk_ack`, який повідомляє cumulative bytes лише після валідного
+ACK цілі; `AdbClient.list_devices()` уже повертає точні ADB serial/state.
+Отже, app-level throughput, confirmed progress, приблизний ETA та стани
+`offline`/`unauthorized` можна побудувати без вимірювання USB шини. Це напряму
+допоможе UI та відлагодженню кабельних обривів, коли Wireless debugging
+заздалегідь спарений і лишається доступним незалежним контрольним каналом.
+
+Офіційний Android USB Host API описує `UsbDeviceConnection.bulkTransfer()` як
+обмін endpoint-даними з периферією, коли Android-пристрій працює в host mode;
+він не дає застосунку доступ до ADB bytes телефона, підключеного як USB device
+до Windows. Джерела:
+- https://developer.android.com/develop/connectivity/usb/host
+- https://developer.android.com/reference/android/hardware/usb/UsbDeviceConnection
+- `transferkit/transport/usb_adb.py` (`send_file`, ACK callback)
+- `transferkit/device_detect.py` (`AdbClient.list_devices`)
+- `PROJECT_SPEC.md` §2.5; `docs/project/DECISIONS.md` D-044
+
+Очікувана користь:
+Користувач бачитиме обсяг, який дійсно підтвердила ціль, швидкість корисного
+навантаження, обережний ETA та стан кожного вибраного пристрою. Якщо USB
+transport від'єднається, а Wireless debugging лишиться онлайн, Station зможе
+зберегти видимість стану/діагностичних даних. Це не означає автоматичне
+перемикання data path: продовження можливе лише через окремий підтриманий
+Recovery handshake із перевіркою identity та durable checkpoints.
+
+Залежності й ризики:
+Потрібні TransferMonitor з monotonic active-time/EMA або bounded window,
+пауза/перепідключення поза ETA, інтеграція progress callback у Station worker
+і UI, а також ADB state watcher із точним `-s SERIAL`. До готової Recovery
+інтеграції Wi-Fi serial лише спостерігає; він не відновлює USB forward і не
+підтверджує, що item доставлений. Прикладна швидкість залежить від диска,
+receiver fsync, CPU, chunk size і ACK policy, тому таблиця MB/s→USB 1.1/2/3
+буде оманливою. SoC не є достатнім доказом максимальної швидкості всього
+пристрою, а «кабель винен» без лінійних/апаратних даних — лише непідтверджена
+гіпотеза. Не додавати Android USB Host permission/API або root для цього
+монітора. Не запускати insecure `adb tcpip 5555`; користуватися системним
+Wireless debugging/pairing.
+
+Початковий стан пристроїв, 2026-11-12: Samsung A04e (`R8YTC096BBD`) і Motorola
+moto g06 (`ZY32M7NJHN`) спершу були доступні лише через USB ADB; Wireless
+debugging був вимкнений. Пізніше телефони під'єднано до спільної Wi-Fi мережі,
+Wireless debugging ввімкнено, A04e штатно спарено з ПК. Тепер окремі Wi-Fi ADB
+serials активні на A04e й Moto, як і на S20 Ultra та M31. IP/порти динамічні;
+використовувати актуальні значення з `adb devices -l`.
+
+Додаткове фізичне спостереження, 2026-11-12: S20 Ultra і M31 підключено до ПК через окремі Wireless debugging TLS serials; обидва залишалися online під час чотирьох прямокабельних конфігурацій. C↔C вибирав M31 host → S20 device; перестановка кінців не змінила ролі. OTG на S20 робив host-ом S20 і він enumerував M31 як MTP; OTG на M31 повертав host-роль M31 і той enumerував S20 як MTP. Це доказ role negotiation та descriptor enumeration, але не файл-перенесення й не cable-disconnect під час TransferKit transfer. Поточний застосунок не має прямого Android USB-host transport.
+
+Додаткове фізичне спостереження, 2026-11-12: на парі Samsung A04e/API 33 ↔ Motorola moto g06/API 35 виконано ті самі чотири role checks через Wi-Fi ADB. C↔C і переставлені кінці: Moto host/source (DFP), A04e device/sink (MTP); Moto бачив Samsung VID:PID `04E8:6860`. OTG на A04e перемикав host-роль на A04e, який бачив Motorola VID:PID `22B8:2E81`; OTG на Moto робив host-ом Moto, який бачив Samsung VID:PID `04E8:6860`. Усі чотири Wi-Fi ADB serials лишалися доступними. Файли не передавали; прямий USB payload і TransferKit transfer не перевіряли.
+
+Оцінка можливості: підтверджено для ACK-based app-level прогресу й ADB
+device-state polling на Windows; S20/M31 та A04e/Moto Wi-Fi ADB і всі вісім
+USB role конфігурацій фізично підтверджені. Cable-disconnect під час активного
+TransferKit transfer та recovery ще потребують окремого acceptance. Android
+`bulkTransfer()` для інспекції наявного ADB USB data path у поточній архітектурі
+непридатний; класифікація negotiated USB generation за лише app throughput не
+підтверджена і не входить до прийнятого обсягу.
+
+Оновлення стану, 2026-11-12:
+Пункт 122 реалізовано в `transferkit/monitor.py`: монітор приймає лише
+підтверджені target ACK байти, вимірює active time monotonic clock-ом,
+виключає pause/reconnect, згладжує швидкість і обмежує ETA сімома днями.
+Пункт 123 інтегрує snapshot-и в Station UI й опитує лише вибрані source/target
+ADB serials: байти, швидкість, ETA, стани device/offline/unauthorized/absent і
+останню локалізовану transport reason. Перемикання transport не виконується.
+Після 8 monitor tests і двох UI/watcher tests повна Python suite пройшла 108/108;
+read-only live watcher підтвердив `device` для A04e та Moto.
+
+Стан: заплановано — 122–123 реалізовано; лишився hardware acceptance 124 з
+активним transfer та checkpoint verification. USB protocol-speed analyzer і
+автоматичне звинувачення кабелю відкинуто як недоведений напрям для поточного
+продукту.
+
+======================================================================
+ІДЕЯ 17. Порівняння з цільовими даними перед повторною передачею
+======================================================================
+
+Дата: 2026-11-12
+
+Причина та доказ:
+Користувач описав критичний сценарій: передача зупинилася після того, як на
+ціль уже відновилося 100 ГБ; якщо почати заново з новим `transfer_id`, повторна
+передача може скопіювати ці дані ще раз і заповнити сховище до того, як будуть
+передані решта item-ів. Це відрізняється від resume тієї самої передачі:
+Recovery checkpoints зберігають ACK-прогрес лише для незмінного `transfer_id`
+та manifest.
+
+Це не тільки проблема великого обсягу: 500+ стиснутих фото з Viber, які разом
+займають приблизно 200 МБ, також можуть створити сотні зайвих записів у галереї.
+Навіть якщо місця достатньо, вручну знаходити й видаляти таку кількість схожих
+зображень важко, а випадково прибрати потрібну версію легко.
+
+Код підтверджує прогалину для MediaStore restore. Destination marker зараз
+обчислюється з `transfer_id`, `category_id` та `item_id`, тож повтор тієї самої
+передачі після process death знаходить власний рядок, але новий `transfer_id`
+генерує інше ім’я і не впізнає попередню відновлену копію. Це може створити
+дублікат. Джерело доказу: `android-client/app/src/main/kotlin/com/transferkit/client/restore/Restorer.kt`,
+`MediaStoreRestorer.destination()` / `findExisting()`.
+
+Метадані (ім’я, розмір, дата) придатні для формування швидких кандидатів, але
+не доводять тотожність байтів. У MediaStore `DATE_MODIFIED` — індексований
+`File.lastModified()`, а generation numbers допомагають помітити зміни
+каталогу; жодне з цих полів не замінює SHA-256. Android 11+ фільтрує видимість
+встановлених пакетів, а дозвіл `QUERY_ALL_PACKAGES` обмежений політиками
+розповсюдження. Contacts Provider зберігає raw contacts з різних облікових
+записів та об’єднані aggregate contacts; E.164 номер корисний як ознака
+кандидата, але не є глобальним ідентифікатором людини.
+
+Офіційні джерела:
+- https://developer.android.com/reference/android/provider/MediaStore.MediaColumns#DATE_MODIFIED
+- https://developer.android.com/reference/android/provider/MediaStore.MediaColumns#GENERATION_MODIFIED
+- https://developer.android.com/training/package-visibility
+- https://developer.android.com/reference/android/provider/ContactsContract
+- https://developer.android.com/reference/android/provider/ContactsContract.CommonDataKinds.Phone#NORMALIZED_NUMBER
+
+Очікувана користь:
+Якщо користувач поновлює ту саму передачу з тим самим manifest, продовжити з
+авторитетних target checkpoints і не передавати підтверджені байти повторно.
+Якщо він свідомо обирає restart з новим `transfer_id`, виявляти вже відновлені
+файли з точним SHA-256 і не створювати їх копії повторно. У прикладі з 100 ГБ
+на цілі ці item-и мають перейти у звіт як `already present / skipped`, а
+оцінка нових байтів має не включати їх.
+
+Залежності й ризики:
+Потрібні target-side інвентаризація доступних категорій, точний SHA-256
+кандидатів, обмежене кешування hash-ів із перевіреною інвалідацією, окремий
+Difference/TransferPlan і report decisions для `ALREADY_PRESENT`. Повторне
+хешування десятків/сотень гігабайтів саме витрачає час, батарею та читання
+storage, тому scan time слід показувати окремо від transfer ETA. Якщо потрібне
+дозволення/URI відсутнє, item має бути `UNKNOWN`, а не вважатися відсутнім.
+Однакове ім’я з іншими байтами за замовчуванням зберігається окремо або
+виноситься в конфлікт на явний вибір; автоматичне overwrite/delete не
+дозволяти. Перша реалізація обмежується доступними file/media категоріями;
+API-категорії, контактне fuzzy matching і package inventory мають окремі
+правила/дозволи. SHA-256 залишається протокольною перевіркою; BLAKE3 не
+замінює її. pHash/dHash використовуються локально як індекс кандидатів для
+near-duplicate фото. Вони не мають права самостійно пропускати item.
+
+Оцінка переданого технічного плану, 2026-11-12:
+
+- Приймаю багатоступеневе exact-порівняння: групування за розміром, потоковий
+  hash перших/останніх блоків як cheap filter, а повний SHA-256 лише для
+  кандидатів. Збіг partial hash ніколи не є підставою для skip. Для нульових
+  файлів повний SHA-256 порожнього byte stream є точним доказом; ім’я/mtime
+  не потрібні.
+- Виправляю порядок для pHash: фото треба перевіряти окремим pass незалежно від
+  byte size, інакше recompressed/resized Viber copy з іншою довжиною буде
+  відсіяна на першому етапі й не знайдеться. Поріг `5/64` не приймаю як
+  універсальне значення: він залежить від алгоритму, decoder, resize/orientation
+  і тестового набору.
+- Не приймаю `conflict → чекати ручне рішення` як продуктову поведінку. Точний
+  duplicate автоматично пропускається. Високовпевнений візуальний дублікат
+  автоматично пропускається, якщо target-версія не гірша; якщо source краща,
+  вона автоматично переноситься як окремий TransferKit-managed upgrade без
+  мовчазного overwrite стороннього файла. Невизначена схожість автоматично
+  копіюється до TransferKit collection, не блокуючи передачу й не вимагаючи
+  ручної класифікації. Користувач не повинен переглядати кожен conflict.
+- E.164/ім’я окремо не ідентифікують контакт; повідомлення з timestamp до
+  хвилини можуть злити різні повідомлення; package name без signer/version не
+  доводить, що APK можна пропустити; довільний settings key може мати сторонні
+  наслідки. Ці API-категорії потребують окремих детермінованих idempotency
+  adapters і не входять у file/photo exact matcher.
+- Cache ключ `(path, size, mtime)` сам по собі недостатній для автоматичного
+  skip: target inventory має використовувати стабільний provider object ID,
+  volume, size, modified/generation markers і версію алгоритму; непідтверджена
+  інвалідація означає перерахунок hash, не довіру до застарілого запису. SAF,
+  де немає надійного generation token, має суворішу перевірку/перерахунок.
+- Збій дозволу або недоступний URI не є «відсутністю duplicate». Категорія
+  отримує incomplete coverage й лишається видимою в плані; невідоме покриття не
+  перетворюється на хибне твердження про відсутність дублікатів.
+
+Референси реалізацій:
+- Czkawka: exact duplicate pipeline, окремий perceptual image pipeline,
+  Hamming-distance index та hash cache:
+  https://github.com/qarmin/czkawka/blob/master/instructions/Instruction_Core.md
+- ClearLens: Android local SHA-256 + 64-bit perceptual grouping і локальний
+  аналіз; його «не видаляє автоматично» не переносимо у TransferKit skip policy:
+  https://github.com/intrusiveicebear/ClearLens
+- image-dedup: комбінує SHA-256 із pHash/dHash та resumable cache:
+  https://github.com/fpelliccioni/image-dedup
+- Ofcom оглядає похибки perceptual hashing, зокрема false positives/negatives:
+  https://www.ofcom.org.uk/siteassets/resources/documents/research-and-data/online-research/other/perceptual-hashing-technology.pdf
+- Android вимагає `ACCESS_MEDIA_LOCATION` runtime consent разом із
+  `MediaStore.setRequireOriginal(uri)`, щоб прочитати оригінальні, не redacted
+  GPS/EXIF байти: https://developer.android.com/training/data-storage/shared/media
+  і https://developer.android.com/reference/android/provider/MediaStore#setRequireOriginal(android.net.Uri)
+
+Оцінка наданої гібридної статті:
+
+- Приймаю preflight + live write guard + final verify. Scan має показувати
+  прогрес і окрему ETA; користувач може скасувати його до першого запису. Для
+  exact matching size metadata відсіює кандидатів, partial fingerprint
+  перших/останніх 4 KiB дешево відкидає різні байти, а повний target SHA-256
+  підтверджує лише кандидатів. Source edge fingerprint потрібно обчислювати в
+  межах обов’язкового manifest read, не перечитуючи source file.
+- Фото pHash/dHash проходить незалежно від розміру: інакше Viber recompression
+  не потрапить до кандидата. Перцептивний hash лише індексує; поріг 5/64 не
+  приймається без benchmark на різних кадрах, burst, crops, rotation і Viber
+  recompression. Cache має включати об’єкт/volume, size, modification/generation
+  і hash algorithm version; сумнівна invalidation означає повторне читання.
+- Не приймаю `copy_pending_verify` для великих файлів із подальшим видаленням
+  копії-дубліката. Це вже передає весь великий файл, займає target storage,
+  спотворює Space Preflight і потребує destructive cleanup. Якщо великий target
+  item є candidate, його теж треба перевірити до першого chunk; видимий scan
+  progress та кеш вирішують повільність без зайвого transfer/write.
+- Guard + Verify приймаю з автоматичним re-check, не з item-level conflict
+  діалогом: зміна target inventory generation призводить до повторної
+  класифікації цього item за тією самою policy. Уже наявні MediaStore bytes
+  не перезаписуються і не видаляються; кожен newly written item перевіряється
+  SHA-256 до/після publish.
+- Твердження «preflight не додає читання» справедливе лише для source, де edge
+  fingerprint рахується в тій самій обов’язковій manifest pass. Target candidate
+  scanning усе одно читає його bytes; повтори пришвидшуються валідованим кешем.
+  Поріг `T_hash=256 MiB` не використовується, щоб пропускати preflight великого
+  candidate: це зробило б exact skip неповним і знов створило б дублікати.
+
+Додаткова перевірка metadata: поточний `MediaProvider.openStream()` відкриває
+звичайний URI, а `ACCESS_MEDIA_LOCATION` у manifest лише оголошено. Він не
+запитує runtime grant і не викликає `MediaStore.setRequireOriginal()`, тому
+Android може redacted GPS EXIF до хешування/передачі. Вбудовані інші metadata
+зберігаються лише якщо source stream повернув оригінальні bytes. Для GPS треба
+дати один явний category-level opt-in/permission; при відмові не обіцяти
+координати й зафіксувати їх redaction у плані/звіті.
+
+Оцінка можливості: підтверджено для точного SHA-256 planning ядра; Android target
+inventory, image verifier, permissions/coverage, performance й physical
+acceptance ще потребують реалізації та вимірювання.
+
+Стан: прийнято як обов’язкову частину продуктового transfer plan, без ручного
+item-by-item conflict resolution. Python exact-match planner уже доданий у
+`transferkit/dedup.py`; report JSON/CSV і Windows UI показують автоматичні
+dedup counters. Остання Python suite — 144/144; exact-plan покрито п’ятьма
+тестами, report counters — двома. Target inventory, partial/full cache, versioned wire filtering,
+Android/Station integration, near-duplicate verifier/benchmark та physical
+acceptance ще не реалізовані. Спочатку закрити MediaStore photos/videos/audio,
+потім SAF file categories та окремо idempotency для API-категорій. GPS EXIF
+збереження також має окрему runtime permission/setRequireOriginal перевірку.

@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://transferkit.local/schema/capability.schema.json",
+  "title": "TransferKit Capability Manifest",
+  "description": "Read-only runtime probe results for one Android device.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "generated_at", "device", "probe_duration_ms", "categories"],
+  "properties": {
+    "version": { "const": "1.0" },
+    "generated_at": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "device": { "$ref": "manifest.schema.json#/$defs/device" },
+    "probe_duration_ms": { "type": "integer", "minimum": 0 },
+    "categories": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "enum": ["photos", "videos", "audio", "documents", "downloads", "contacts", "calendar", "sms", "call_log", "apks", "settings", "app_data", "wifi_passwords", "launcher_layout", "accounts", "drm", "banking_apps", "two_factor_tokens"]
+      },
+      "additionalProperties": { "$ref": "#/$defs/capability" }
+    }
+  },
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tier", "status", "method", "permission_required", "fallback", "reason", "evidence"],
+      "properties": {
+        "tier": { "enum": ["A", "B", "C", "D", "E", "F", "G"] },
+        "status": { "enum": ["AVAILABLE", "PARTIAL", "UNAVAILABLE"] },
+        "method": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "permission_required": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "fallback": { "type": ["string", "null"], "maxLength": 512 },
+        "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        },
+        "quirk": { "type": ["string", "null"], "maxLength": 512 }
+      }
+    }
+  }
+}

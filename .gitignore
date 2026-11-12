@@ -1,0 +1,53 @@
+# Python caches, local environments and package output
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Build products and test reports
+**/build/
+**/dist/
+test-results/
+**/test-results/
+*.spec
+*.log
+
+# Gradle and Kotlin local state
+.gradle/
+.gradle-user-home/
+.kotlin/
+**/.gradle/
+**/.gradle-user-home/
+**/.kotlin/
+local.properties
+**/local.properties
+
+# Transfer data, databases and temporary files
+logs/
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.tmp
+*.part
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+adbkey*
+
+# Generated Android packages belong in release artifacts, not source history
+*.apk
+*.aab

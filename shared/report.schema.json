@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://transferkit.local/schema/report.schema.json",
+  "title": "TransferKit Transfer Report",
+  "description": "Per-category outcome, integrity verification and restore results.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "transfer_id", "started_at", "finished_at", "mode", "source_device", "target_device", "categories", "summary"],
+  "properties": {
+    "version": { "const": "1.0" },
+    "transfer_id": { "type": "string", "format": "uuid" },
+    "started_at": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "finished_at": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "mode": { "enum": ["quick", "full", "professional"] },
+    "source_device": { "$ref": "manifest.schema.json#/$defs/device" },
+    "target_device": { "$ref": "manifest.schema.json#/$defs/device" },
+    "categories": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/category_result" }
+    },
+    "summary": { "$ref": "#/$defs/summary" },
+    "decisions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/decision" }
+    }
+  },
+  "$defs": {
+    "category_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category_id", "tier", "source_count", "manifest_count", "transferred_count", "verified_count", "restored_count", "plan_status", "status", "reason", "failures"],
+      "properties": {
+        "category_id": { "enum": ["photos", "videos", "audio", "documents", "downloads", "contacts", "calendar", "sms", "call_log", "apks", "settings", "app_data", "wifi_passwords", "launcher_layout", "accounts", "drm", "banking_apps", "two_factor_tokens"] },
+        "tier": { "enum": ["A", "B", "C", "D", "E", "F", "G"] },
+        "source_count": { "type": "integer", "minimum": 0 },
+        "manifest_count": { "type": "integer", "minimum": 0 },
+        "transferred_count": { "type": "integer", "minimum": 0 },
+        "verified_count": { "type": "integer", "minimum": 0 },
+        "restored_count": { "type": "integer", "minimum": 0 },
+        "deduplicated_count": { "type": "integer", "minimum": 0 },
+        "deduplicated_bytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        "plan_status": { "enum": ["TRANSFERABLE", "PARTIAL", "UNAVAILABLE"] },
+        "status": { "enum": ["OK", "PARTIAL", "UNAVAILABLE", "FAILED", "FAILED_INTEGRITY"] },
+        "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+        "failures": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/failure" }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "failures": {
+                "contains": {
+                  "properties": { "reason": { "const": "SHA256_MISMATCH" } },
+                  "required": ["reason"]
+                }
+              }
+            },
+            "required": ["failures"]
+          },
+          "then": { "properties": { "status": { "const": "FAILED_INTEGRITY" } } }
+        },
+        {
+          "if": {
+            "properties": { "status": { "const": "FAILED_INTEGRITY" } },
+            "required": ["status"]
+          },
+          "then": {
+            "properties": {
+              "failures": {
+                "contains": {
+                  "properties": { "reason": { "const": "SHA256_MISMATCH" } },
+                  "required": ["reason"]
+                }
+              }
+            },
+            "required": ["failures"]
+          }
+        }
+      ]
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "stage", "reason"],
+      "properties": {
+        "item_id": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "stage": { "enum": ["PROBE", "PLAN", "MANIFEST", "TRANSFER", "VERIFY", "RESTORE", "POST_VERIFY"] },
+        "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+        "display_message": { "type": ["string", "null"], "maxLength": 512 }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_categories", "transferable", "partial", "unavailable", "failed_integrity"],
+      "properties": {
+        "total_categories": { "type": "integer", "minimum": 0 },
+        "transferable": { "type": "integer", "minimum": 0 },
+        "partial": { "type": "integer", "minimum": 0 },
+        "unavailable": { "type": "integer", "minimum": 0 },
+        "failed_integrity": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "item_ids"],
+      "properties": {
+        "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" },
+        "category_id": { "enum": ["photos", "videos", "audio", "documents", "downloads", "contacts", "calendar", "sms", "call_log", "apks", "settings", "app_data", "wifi_passwords", "launcher_layout", "accounts", "drm", "banking_apps", "two_factor_tokens", null] },
+        "item_ids": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "type": "string", "minLength": 1, "maxLength": 512 }
+        }
+      }
+    }
+  }
+}
