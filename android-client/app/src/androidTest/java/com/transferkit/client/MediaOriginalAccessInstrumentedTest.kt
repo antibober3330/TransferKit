@@ -1,6 +1,7 @@
 package com.transferkit.client
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -9,12 +10,15 @@ import android.provider.MediaStore
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.security.MessageDigest
+import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class MediaOriginalAccessInstrumentedTest {
@@ -63,4 +67,61 @@ class MediaOriginalAccessInstrumentedTest {
             provider.uriForRead(video, MediaCategory.VIDEOS, includeOriginalPhotoMetadata = true),
         )
     }
+
+    @Test
+    fun requireOriginalStreamPreservesSyntheticGpsExifPayload() {
+        assumeTrue(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
+        assumeTrue(
+            context.checkSelfPermission(Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+
+        val sourceBytes = context.assets.open("synthetic-gps-exif.jpg").use { it.readBytes() }
+        assertEquals(
+            "0bc7779ec792e4d290a1d85a908fb55905508033aeda1bd7c50b727c6ef3901e",
+            sha256(sourceBytes),
+        )
+        val displayName = "transferkit-synthetic-gps-${UUID.randomUUID()}.jpg"
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/TransferKitTest/")
+        }
+        val resolver = context.contentResolver
+        val insertedUri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw AssertionError("MediaStore did not create the synthetic test image")
+
+        try {
+            val output = resolver.openOutputStream(insertedUri, "w")
+                ?: throw AssertionError("MediaStore did not open the synthetic image for writing")
+            output.use { it.write(sourceBytes) }
+
+            val provider = MediaProvider(context)
+            val requiredOriginalUri = provider.uriForRead(
+                insertedUri,
+                MediaCategory.PHOTOS,
+                includeOriginalPhotoMetadata = true,
+            )
+            val item = MediaItem(
+                categoryId = MediaCategory.PHOTOS.contractId,
+                id = "synthetic_gps_exif",
+                uri = requiredOriginalUri,
+                displayName = displayName,
+                sizeBytes = sourceBytes.size.toLong(),
+                mimeType = "image/jpeg",
+                modifiedAtSeconds = null,
+                relativePath = "Pictures/TransferKitTest/",
+            )
+            val restoredSourceBytes = provider.openStream(item).use { it.readBytes() }
+
+            assertArrayEquals("Original EXIF stream must preserve every synthetic source byte", sourceBytes, restoredSourceBytes)
+            assertEquals(sha256(sourceBytes), sha256(restoredSourceBytes))
+        } finally {
+            resolver.delete(insertedUri, null, null)
+        }
+    }
+
+    private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+        .digest(bytes)
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

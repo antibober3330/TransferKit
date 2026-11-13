@@ -6,6 +6,25 @@ This file tracks user-visible and protocol-level changes. The current project is
 
 Changes for the next version will be recorded here.
 
+## [0.1.0-alpha.3] - 2026-11-13
+
+Development snapshot for ongoing media-permission acceptance; no Git tag and not a release candidate.
+
+### Included
+
+- Centralized Android 14+ selected-visual-media permission policy and added unit coverage proving that selected photo/video access never implies audio access.
+- Added a deterministic 772-byte synthetic JPEG with GPS EXIF coordinates `0,0` and an instrumentation test asserting that `MediaStore.setRequireOriginal()` returns exact source bytes and SHA-256 when `ACCESS_MEDIA_LOCATION` is granted.
+- Corrected the specification to describe the implemented opt-in and documented Redmi MIUI ADB installation limitations.
+- Changed media preflight to enumerate metadata without opening a source stream; full content reads and SHA-256 begin only when the user builds a manifest. The Android UI now explains the visible-photo permission scope.
+- A denied original-EXIF permission now stops that explicit scan with guidance instead of silently switching to the redacted-photo path.
+- Bundled photo, selected-visual-media, and original-location runtime permissions in one request when the original-EXIF flow starts without an existing photo grant, following Android's partial-access guidance.
+
+### Validation and remaining work
+
+- Android unit tests: 77/77 passed; debug and AndroidTest APKs compile.
+- Redmi 12/API 35 accepted a limited selected-photo grant; the updated metadata-only scan reported exactly one visible 772-byte item. `ACCESS_MEDIA_LOCATION` remained denied after the separate prompt was not shown; the newest alpha.3 APK bundles all first-time permissions in one request and is staged for manual update. Older APK files were removed from Downloads.
+- Physical GPS EXIF byte-equality instrumentation has not run: Redmi MIUI rejected the AndroidTest APK with `INSTALL_FAILED_USER_RESTRICTED`; the main app package was removed by the failed Gradle install session, then alpha.3 was manually reinstalled. A prior photo permission flow exposed 7 visible items; the app was stopped, and the current code no longer opens a probe stream during preflight. MIUI requires manual permission changes because its ADB shell cannot call `pm revoke`.
+- API 34 partial-photo/video physical acceptance and the original EXIF permission prompt remain open. No release tag is created until release gates pass.
 ## [0.1.0-alpha.2] - 2026-11-13
 
 Development snapshot published to `main`; this is not a release candidate and has no Git tag.

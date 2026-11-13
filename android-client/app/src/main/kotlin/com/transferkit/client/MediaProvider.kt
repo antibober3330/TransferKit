@@ -43,34 +43,28 @@ class MediaProvider(context: Context) {
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
 
-    fun permissionsToRequest(category: MediaCategory): Array<String> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
-        val categoryPermission = when (category) {
-            MediaCategory.PHOTOS -> android.Manifest.permission.READ_MEDIA_IMAGES
-            MediaCategory.VIDEOS -> android.Manifest.permission.READ_MEDIA_VIDEO
-            MediaCategory.AUDIO -> android.Manifest.permission.READ_MEDIA_AUDIO
-        }
-        return if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            category != MediaCategory.AUDIO
-        ) {
-            arrayOf(categoryPermission, android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
-        } else {
-            arrayOf(categoryPermission)
-        }
-    }
+    fun permissionsToRequest(
+        category: MediaCategory,
+        includeOriginalPhotoMetadata: Boolean = false,
+    ): Array<String> = MediaOriginalAccessPolicy.permissionsToRequest(
+        category,
+        Build.VERSION.SDK_INT,
+        includeOriginalPhotoMetadata,
+    )
 
     fun hasReadAccess(category: MediaCategory): Boolean {
         val categoryPermission = permissionsToRequest(category).first()
-        if (appContext.checkSelfPermission(categoryPermission) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            return true
-        }
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
-            category != MediaCategory.AUDIO &&
+        val categoryPermissionGranted = appContext.checkSelfPermission(categoryPermission) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        val selectedVisualPermissionGranted = Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
             appContext.checkSelfPermission(android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
+        return MediaOriginalAccessPolicy.hasReadAccess(
+            category = category,
+            sdkInt = Build.VERSION.SDK_INT,
+            hasCategoryPermission = categoryPermissionGranted,
+            hasUserSelectedVisualPermission = selectedVisualPermissionGranted,
+        )
     }
 
     fun hasMediaLocationAccess(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&

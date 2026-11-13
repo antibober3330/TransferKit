@@ -1,6 +1,6 @@
 # TransferKit
 
-**Поточний development snapshot:** `0.1.0-alpha.2` ([`VERSION`](VERSION)); правила випуску й changelog: [`VERSIONING.md`](VERSIONING.md), [`CHANGELOG.md`](CHANGELOG.md).
+**Поточний development snapshot:** `0.1.0-alpha.3` ([`VERSION`](VERSION)); правила випуску й changelog: [`VERSIONING.md`](VERSIONING.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 TransferKit — проєкт локального перенесення даних між Android-пристроями через Windows Station або майбутній автономний Android flow. Станом на 12 листопада 2026 року це **робочий прототип і набір перевірених компонентів**, а не готовий наскрізний засіб міграції.
 

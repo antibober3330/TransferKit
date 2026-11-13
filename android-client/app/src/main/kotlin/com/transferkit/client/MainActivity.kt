@@ -145,7 +145,18 @@ class MainActivity : ComponentActivity() {
         pendingCategory = null
         pendingOriginalPhotoMetadata = false
         if (category != null && mediaProvider.hasReadAccess(category)) {
-            continueMediaRequest(category, includeOriginalPhotoMetadata)
+            if (
+                MediaOriginalAccessPolicy.requiresMediaLocationPermission(
+                    category,
+                    Build.VERSION.SDK_INT,
+                    includeOriginalPhotoMetadata,
+                ) && !mediaProvider.hasMediaLocationAccess()
+            ) {
+                mediaStatus = "Доступ до оригінальних EXIF не надано; фото не сканувалися. " +
+                    "Дозволь його в налаштуваннях Android або натисни «Перевірити фото» для звичайного доступу."
+            } else {
+                scanMedia(category, includeOriginalPhotoMetadata)
+            }
         } else if (category != null) {
             mediaStatus = "Доступ до категорії ${category.contractId} не надано."
         }
@@ -155,8 +166,8 @@ class MainActivity : ComponentActivity() {
         if (granted) {
             scanMedia(MediaCategory.PHOTOS, includeOriginalPhotoMetadata = true)
         } else {
-            // Continue with the bytes Android exposes by default; MediaStore may redact photo location.
-            scanMedia(MediaCategory.PHOTOS, includeOriginalPhotoMetadata = false)
+            mediaStatus = "Доступ до оригінальних EXIF не надано; фото не сканувалися. " +
+                "Дозволь його в налаштуваннях Android або натисни «Перевірити фото» для звичайного доступу."
         }
     }
 
@@ -776,7 +787,9 @@ class MainActivity : ComponentActivity() {
         } else {
             pendingCategory = category
             pendingOriginalPhotoMetadata = includeOriginalPhotoMetadata
-            mediaPermissionRequest.launch(mediaProvider.permissionsToRequest(category))
+            mediaPermissionRequest.launch(
+                mediaProvider.permissionsToRequest(category, includeOriginalPhotoMetadata),
+            )
         }
     }
 
@@ -1040,7 +1053,7 @@ class MainActivity : ComponentActivity() {
 
     private fun scanMedia(category: MediaCategory, includeOriginalPhotoMetadata: Boolean = false) {
         mediaStatus = if (category == MediaCategory.PHOTOS && includeOriginalPhotoMetadata) {
-            "Перевіряю фото й читаю оригінальні байти після дозволу Android…"
+            "Перевіряю метадані доступних фото; вміст і SHA-256 будуть прочитані під час побудови маніфесту…"
         } else {
             "Перевіряю категорію ${category.contractId}…"
         }
@@ -1048,18 +1061,11 @@ class MainActivity : ComponentActivity() {
             try {
                 var totalBytes = 0L
                 var unknownSizes = 0
-                var firstStreamOpened = false
                 val manifestItems = ArrayList<ManifestItemSource>()
                 val count = mediaProvider.forEachMedia(category, includeOriginalPhotoMetadata) { item ->
                     val size = item.sizeBytes
                     if (size == null) unknownSizes += 1 else totalBytes = totalBytes.saturatingAdd(size)
                     manifestItems += ManifestItemSources.media(mediaProvider, item)
-                    if (!firstStreamOpened) {
-                        mediaProvider.openStream(item).use { stream ->
-                            stream.read(ByteArray(16 * 1024))
-                        }
-                        firstStreamOpened = true
-                    }
                 }
                 val mediaLocationNote = if (
                     category == MediaCategory.PHOTOS &&
@@ -1068,7 +1074,7 @@ class MainActivity : ComponentActivity() {
                 ) {
                     " GPS EXIF може бути redacted Android; у передачу піде точний доступний потік, координати окремо не читаються."
                 } else if (category == MediaCategory.PHOTOS && includeOriginalPhotoMetadata) {
-                    " Оригінальні байти фото запитані після явного дозволу; застосунок не журналює координати."
+                    " Оригінальні URI підготовлені після явного дозволу; координати застосунок не журналює."
                 } else {
                     ""
                 }
@@ -1077,7 +1083,7 @@ class MainActivity : ComponentActivity() {
                 } else {
                     "${category.contractId}: $count елементів, " +
                         "відомий розмір ${formatBytes(totalBytes)}, " +
-                        "$unknownSizes без розміру; потік першого елемента відкрито.$mediaLocationNote"
+                        "$unknownSizes без розміру; перевірено лише метадані.$mediaLocationNote"
                 }
                 val method = when {
                     category == MediaCategory.PHOTOS && includeOriginalPhotoMetadata ->
@@ -1100,7 +1106,7 @@ class MainActivity : ComponentActivity() {
             } catch (_: SecurityException) {
                 runOnUiThread { mediaStatus = "Android не надав доступ до вибраної категорії." }
             } catch (_: IOException) {
-                runOnUiThread { mediaStatus = "Не вдалося потоково відкрити елемент категорії." }
+                runOnUiThread { mediaStatus = "Не вдалося прочитати список категорії з MediaStore." }
             }
         }
     }
