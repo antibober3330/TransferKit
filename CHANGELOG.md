@@ -8,7 +8,7 @@ Changes for the next version will be recorded here.
 
 ## [0.1.0-alpha.3] - 2026-11-13
 
-Development snapshot for ongoing media-permission acceptance; no Git tag and not a release candidate.
+Development snapshot published to GitHub `main` in source commit `448bc180d0e0324a45cffa3e749a82e4675d690f`; no Git tag and not a release candidate.
 
 ### Included
 
@@ -22,9 +22,9 @@ Development snapshot for ongoing media-permission acceptance; no Git tag and not
 ### Validation and remaining work
 
 - Android unit tests: 77/77 passed; debug and AndroidTest APKs compile.
-- Redmi 12/API 35 accepted a limited selected-photo grant; the updated metadata-only scan reported exactly one visible 772-byte item. `ACCESS_MEDIA_LOCATION` remained denied after the separate prompt was not shown; the newest alpha.3 APK bundles all first-time permissions in one request and is staged for manual update. Older APK files were removed from Downloads.
+- Redmi 12/API 35 accepted the bundled first-time request with limited selected-photo access and original-media-location grant. ADB shows `READ_MEDIA_VISUAL_USER_SELECTED=true`, `READ_MEDIA_IMAGES=false`, and `ACCESS_MEDIA_LOCATION=true`; the screenshot shows exactly one visible 772-byte synthetic item and an original URI prepared after explicit consent. The newest alpha.3 APK (9,439,613 bytes, SHA-256 `7F970A1660F82D67871EFDE74B192EDE11AE6E068AB49CB65DDB08F6959E6A0A`) was manually installed and confirmed by SDK ADB; it is the only TransferKit APK in Downloads. Manifest construction completed with 1 category, 1 item, 0.0 MiB, and 0 problem items; no transfer or restore was started. The single synthetic item was read once to compute SHA-256, but the UI does not expose the item digest, so equality with the expected fixture hash is not independently confirmed. The user then cleared the selection; TransferKit reported that its temporary snapshot was removed.
 - Physical GPS EXIF byte-equality instrumentation has not run: Redmi MIUI rejected the AndroidTest APK with `INSTALL_FAILED_USER_RESTRICTED`; the main app package was removed by the failed Gradle install session, then alpha.3 was manually reinstalled. A prior photo permission flow exposed 7 visible items; the app was stopped, and the current code no longer opens a probe stream during preflight. MIUI requires manual permission changes because its ADB shell cannot call `pm revoke`.
-- API 34 partial-photo/video physical acceptance and the original EXIF permission prompt remain open. No release tag is created until release gates pass.
+- API 34 partial-photo/video physical acceptance and original EXIF exact-byte acceptance remain open. No release tag is created until release gates pass.
 ## [0.1.0-alpha.2] - 2026-11-13
 
 Development snapshot published to `main`; this is not a release candidate and has no Git tag.
