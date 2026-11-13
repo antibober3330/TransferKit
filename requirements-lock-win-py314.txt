@@ -1,0 +1,26 @@
+# Resolved build/runtime dependency set for Windows x64, CPython 3.14.4.
+# Regenerate and review this file when requirements.txt changes.
+altgraph==0.17.5
+annotated-types==0.8.0
+attrs==26.1.0
+cffi==2.0.0
+cryptography==43.0.3
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+packaging==26.1
+pefile==2024.8.26
+pycparser==3.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+pyinstaller==6.20.0
+pyinstaller-hooks-contrib==2026.4
+PySide6==6.11.0
+PySide6_Addons==6.11.0
+PySide6_Essentials==6.11.0
+pywin32-ctypes==0.2.3
+referencing==0.37.0
+rpds-py==0.30.0
+setuptools==82.0.1
+shiboken6==6.11.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0

@@ -53,6 +53,8 @@
 - `manifest.json` item metadata містить лише JSON-сумісні restore-атрибути та має ліміт 64 KiB канонічного UTF-8 JSON на item.
 - Android `ManifestBuilder` повертає окремі `ManifestBuildFailure` для джерельного read/permission error; такі item не входять до manifest і мають бути відображені у фінальному report як failed до transfer. Невалідні category IDs, duplicate item IDs, metadata >64 KiB і schema-limit violations abort-ять побудову manifest.
 
+У `manifest.schema.json` `transfer_id` має бути lowercase canonical UUID (`8-4-4-4-12` hex); `source_device.sdk` має вміщатися у signed 32-bit integer, як Kotlin `Int`. `created_at` — UTC із `Z`: секунди без дробової частини або рівно шість десяткових знаків microseconds, щоб Python `datetime.isoformat()` і Android `ManifestBuilder` зберігали однаковий canonical manifest hash. Python і Android також відхиляють manifest, якщо різні item IDs у wire-кодуванні дають однакову пару 32-bit SHA-256 ID hashes. Це запобігає розбіжності, коли Python прийняв би uppercase UUID, число SDK, яке Android parser не може представити, неоднозначні chunk IDs або timestamp precision, що змінює canonical hash.
+
 ## Коди причин
 
 Код причини є стабільним machine-readable рядком; детальний текст для UI окремий.

@@ -23,6 +23,7 @@ fun DeviceInfoScreen(
     onOpenRestoreInbox: () -> Unit,
     mediaStatus: String,
     onScanMedia: (MediaCategory) -> Unit,
+    onScanPhotosWithOriginalMetadata: () -> Unit,
     onPickDocuments: () -> Unit,
     contactsStatus: String,
     onScanContacts: () -> Unit,
@@ -111,6 +112,10 @@ fun DeviceInfoScreen(
             )
             Button(onClick = { onScanMedia(MediaCategory.PHOTOS) }) {
                 Text("Перевірити фото")
+            }
+            Text("За замовчуванням Android може приховати геолокацію в EXIF. Її передавання необов’язкове й потребує окремого дозволу.")
+            Button(onClick = onScanPhotosWithOriginalMetadata) {
+                Text("Фото з оригінальними EXIF (окремий дозвіл)")
             }
             Button(onClick = { onScanMedia(MediaCategory.VIDEOS) }) {
                 Text("Перевірити відео")

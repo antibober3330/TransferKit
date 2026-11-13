@@ -3,6 +3,7 @@ package com.transferkit.client
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.time.Instant
 import java.nio.file.Files
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -23,6 +24,15 @@ class ManifestBuilderTest {
         dataStorageTotalBytes = 64L * 1024 * 1024 * 1024,
         dataStorageAvailableBytes = 32L * 1024 * 1024 * 1024,
     )
+
+    @Test
+    fun canonicalUtcTimestampMatchesPythonPrecision() {
+        assertEquals("1970-01-01T00:00:00Z", formatCanonicalUtcTimestamp(Instant.EPOCH))
+        assertEquals(
+            "1970-01-01T00:00:00.123456Z",
+            formatCanonicalUtcTimestamp(Instant.parse("1970-01-01T00:00:00.123456789Z")),
+        )
+    }
 
     @Test
     fun knownSizeItemHasExactHashAndSecondPassBytes() {
@@ -114,6 +124,75 @@ class ManifestBuilderTest {
         } finally {
             bundle.close()
             assertFalse(File(cache, "transferkit-manifest-snapshots/${bundle.transferId}").exists())
+            cache.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun replayableUnknownSizeSourceUsesMeasuredBytesWithoutDiskSnapshot() {
+        val cache = Files.createTempDirectory("tk-manifest-replayable-").toFile()
+        val bytes = "media provider may redact metadata".toByteArray()
+        val bundle = ManifestBuilder(cache).build(
+            device,
+            listOf(
+                ManifestCategorySource(
+                    "photos",
+                    "FixtureMediaStore",
+                    "redacted stream",
+                    listOf(
+                        ManifestItemSource(
+                            id = "photo-redacted",
+                            declaredSizeBytes = null,
+                            metadata = emptyMap(),
+                            replayableWithoutSnapshot = true,
+                        ) { it.write(bytes) },
+                    ),
+                ),
+            ),
+        )
+        try {
+            val item = bundle.categories.single().items.single()
+            assertEquals(bytes.size.toLong(), item.sizeBytes)
+            assertEquals(sha256(bytes), item.sha256)
+            assertFalse(File(cache, "transferkit-manifest-snapshots/${bundle.transferId}").exists())
+            val sent = ByteArrayOutputStream()
+            item.writeAndVerify(sent)
+            assertArrayEquals(bytes, sent.toByteArray())
+        } finally {
+            bundle.close()
+            cache.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun replayableUnknownSizeSourceRejectsChangedSecondPass() {
+        val cache = Files.createTempDirectory("tk-manifest-replayable-change-").toFile()
+        var bytes = "initial media stream".toByteArray()
+        val bundle = ManifestBuilder(cache).build(
+            device,
+            listOf(
+                ManifestCategorySource(
+                    "photos",
+                    "FixtureMediaStore",
+                    "redacted stream",
+                    listOf(
+                        ManifestItemSource(
+                            id = "photo-redacted",
+                            declaredSizeBytes = null,
+                            metadata = emptyMap(),
+                            replayableWithoutSnapshot = true,
+                        ) { it.write(bytes) },
+                    ),
+                ),
+            ),
+        )
+        try {
+            bytes = "changed media stream".toByteArray()
+            assertThrows(IOException::class.java) {
+                bundle.categories.single().items.single().writeAndVerify(ByteArrayOutputStream())
+            }
+        } finally {
+            bundle.close()
             cache.deleteRecursively()
         }
     }

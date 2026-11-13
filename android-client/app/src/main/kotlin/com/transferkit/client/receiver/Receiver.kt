@@ -14,6 +14,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.math.BigDecimal
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.CodingErrorAction
@@ -32,7 +33,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
@@ -645,14 +645,14 @@ class AndroidTransferReceiver(context: Context) : Closeable {
     }
 }
 
-private data class IncomingManifest(
+internal data class IncomingManifest(
     val transferId: UUID,
     val createdAt: String,
     val categoryIds: List<String>,
     val items: Map<String, IncomingItem>,
 )
 
-private data class IncomingItem(
+internal data class IncomingItem(
     val categoryId: String,
     val itemId: String,
     val sizeBytes: Long,
@@ -661,7 +661,7 @@ private data class IncomingItem(
 )
 
 /** Strict local validation mirrors the shared manifest schema and semantic contract. */
-private object IncomingManifestValidator {
+internal object IncomingManifestValidator {
     private val json = Json { isLenient = false; ignoreUnknownKeys = false }
     private val allowedCategories = setOf(
         "photos", "videos", "audio", "documents", "downloads", "contacts", "calendar", "sms",
@@ -669,6 +669,8 @@ private object IncomingManifestValidator {
         "drm", "banking_apps", "two_factor_tokens",
     )
     private val shaPattern = Regex("^[a-f0-9]{64}$")
+    private val canonicalTimestampPattern =
+        Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{6})?Z$")
     private val canonicalJson = Json { encodeDefaults = true; prettyPrint = false }
 
     fun parse(bytes: ByteArray): IncomingManifest {
@@ -685,15 +687,15 @@ private object IncomingManifestValidator {
         val transferId = UUID.fromString(transferIdText)
         require(transferId.toString() == transferIdText)
         val createdAt = root.string("created_at")
-        require(createdAt.endsWith("Z"))
+        require(canonicalTimestampPattern.matches(createdAt))
         Instant.parse(createdAt)
 
         val device = root.objectValue("source_device")
         require(device.keys == setOf("manufacturer", "model", "sdk", "fingerprint"))
-        require(device.string("manufacturer").isNotBlank() && device.string("manufacturer").length <= 128)
-        require(device.string("model").isNotBlank() && device.string("model").length <= 128)
+        require(device.string("manufacturer").isNotBlank() && device.string("manufacturer").codePointLength() <= 128)
+        require(device.string("model").isNotBlank() && device.string("model").codePointLength() <= 128)
         require(device.integer("sdk") >= 26)
-        require(device.string("fingerprint").isNotBlank() && device.string("fingerprint").length <= 512)
+        require(device.string("fingerprint").isNotBlank() && device.string("fingerprint").codePointLength() <= 512)
 
         val categories = root.objectValue("categories")
         require(categories.isNotEmpty() && categories.keys.all { it in allowedCategories })
@@ -701,15 +703,15 @@ private object IncomingManifestValidator {
         categories.forEach { (categoryId, rawCategory) ->
             val category = rawCategory as? JsonObject ?: error("Category must be an object")
             require(category.keys == setOf("provider", "method", "items"))
-            require(category.string("provider").isNotBlank() && category.string("provider").length <= 128)
-            require(category.string("method").isNotBlank() && category.string("method").length <= 128)
+            require(category.string("provider").isNotBlank() && category.string("provider").codePointLength() <= 128)
+            require(category.string("method").isNotBlank() && category.string("method").codePointLength() <= 128)
             val items = category["items"] as? JsonArray ?: error("Category items must be an array")
             val seenItemIds = HashSet<String>()
             items.forEach { rawItem ->
                 val item = rawItem as? JsonObject ?: error("Manifest item must be an object")
                 require(item.keys == setOf("id", "size", "sha256", "metadata"))
                 val itemId = item.string("id")
-                require(itemId.isNotBlank() && itemId.length <= 512 && seenItemIds.add(itemId))
+                require(itemId.isNotBlank() && itemId.codePointLength() <= 512 && seenItemIds.add(itemId))
                 val sizeBytes = item.long("size")
                 require(sizeBytes in 0..MAX_SAFE_INTEGER)
                 val sha256 = item.string("sha256")
@@ -735,13 +737,25 @@ private object IncomingManifestValidator {
     private fun JsonObject.integer(key: String): Int {
         val value = this[key] as? JsonPrimitive ?: error("$key must be an integer")
         require(!value.isString)
-        return value.intOrNull ?: error("$key must be an integer")
+        return try {
+            BigDecimal(value.content).intValueExact()
+        } catch (_: NumberFormatException) {
+            error("$key must be an integer")
+        } catch (_: ArithmeticException) {
+            error("$key must be an integer")
+        }
     }
 
     private fun JsonObject.long(key: String): Long {
         val value = this[key] as? JsonPrimitive ?: error("$key must be an integer")
         require(!value.isString)
-        return value.longOrNull ?: error("$key must be an integer")
+        return try {
+            BigDecimal(value.content).longValueExact()
+        } catch (_: NumberFormatException) {
+            error("$key must be an integer")
+        } catch (_: ArithmeticException) {
+            error("$key must be an integer")
+        }
     }
 
     private fun canonicalize(element: JsonElement): JsonElement = when (element) {
@@ -771,6 +785,8 @@ private object IncomingManifestValidator {
     private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
     private const val MAX_METADATA_BYTES = 64 * 1024
 }
+
+private fun String.codePointLength(): Int = codePointCount(0, length)
 
 private fun JsonObject.toPlainMap(): Map<String, Any?> =
     entries.associate { (key, value) -> key to value.toPlainValue() }

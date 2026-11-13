@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var transferReceiver: AndroidTransferReceiver
     private lateinit var restorerRegistry: RestorerRegistry
     private var pendingCategory: MediaCategory? = null
+    private var pendingOriginalPhotoMetadata = false
     private val selectedManifestSources = linkedMapOf<String, ManifestCategorySource>()
     private lateinit var sourceDeviceInfo: DeviceInfo
     private var preparedManifestBundle: TransferManifestBundle? = null
@@ -65,11 +66,22 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         val category = pendingCategory
+        val includeOriginalPhotoMetadata = pendingOriginalPhotoMetadata
         pendingCategory = null
+        pendingOriginalPhotoMetadata = false
         if (category != null && mediaProvider.hasReadAccess(category)) {
-            scanMedia(category)
+            continueMediaRequest(category, includeOriginalPhotoMetadata)
         } else if (category != null) {
             mediaStatus = "Доступ до категорії ${category.contractId} не надано."
+        }
+    }
+
+    private val mediaLocationPermissionRequest = registerForActivityResult(RequestPermission()) { granted ->
+        if (granted) {
+            scanMedia(MediaCategory.PHOTOS, includeOriginalPhotoMetadata = true)
+        } else {
+            // Continue with the bytes Android exposes by default; MediaStore may redact photo location.
+            scanMedia(MediaCategory.PHOTOS, includeOriginalPhotoMetadata = false)
         }
     }
 
@@ -166,6 +178,7 @@ class MainActivity : ComponentActivity() {
                         },
                         mediaStatus = mediaStatus,
                         onScanMedia = ::requestMediaAccess,
+                        onScanPhotosWithOriginalMetadata = ::requestPhotosWithOriginalMetadata,
                         onPickDocuments = { documentsPicker.launch(arrayOf("*/*")) },
                         contactsStatus = contactsStatus,
                         onScanContacts = ::requestContactsAccess,
@@ -334,11 +347,33 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestMediaAccess(category: MediaCategory) {
+        requestMediaAccess(category, includeOriginalPhotoMetadata = false)
+    }
+
+    private fun requestPhotosWithOriginalMetadata() {
+        requestMediaAccess(MediaCategory.PHOTOS, includeOriginalPhotoMetadata = true)
+    }
+
+    private fun requestMediaAccess(category: MediaCategory, includeOriginalPhotoMetadata: Boolean) {
         if (mediaProvider.hasReadAccess(category)) {
-            scanMedia(category)
+            continueMediaRequest(category, includeOriginalPhotoMetadata)
         } else {
             pendingCategory = category
+            pendingOriginalPhotoMetadata = includeOriginalPhotoMetadata
             mediaPermissionRequest.launch(mediaProvider.permissionsToRequest(category))
+        }
+    }
+
+    private fun continueMediaRequest(category: MediaCategory, includeOriginalPhotoMetadata: Boolean) {
+        if (MediaOriginalAccessPolicy.requiresMediaLocationPermission(
+                category,
+                Build.VERSION.SDK_INT,
+                includeOriginalPhotoMetadata,
+            ) && !mediaProvider.hasMediaLocationAccess()
+        ) {
+            mediaLocationPermissionRequest.launch(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+        } else {
+            scanMedia(category, includeOriginalPhotoMetadata)
         }
     }
 
@@ -578,15 +613,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun scanMedia(category: MediaCategory) {
-        mediaStatus = "Перевіряю категорію ${category.contractId}…"
+    private fun scanMedia(category: MediaCategory, includeOriginalPhotoMetadata: Boolean = false) {
+        mediaStatus = if (category == MediaCategory.PHOTOS && includeOriginalPhotoMetadata) {
+            "Перевіряю фото й читаю оригінальні байти після дозволу Android…"
+        } else {
+            "Перевіряю категорію ${category.contractId}…"
+        }
         mediaExecutor.execute {
             try {
                 var totalBytes = 0L
                 var unknownSizes = 0
                 var firstStreamOpened = false
                 val manifestItems = ArrayList<ManifestItemSource>()
-                val count = mediaProvider.forEachMedia(category) { item ->
+                val count = mediaProvider.forEachMedia(category, includeOriginalPhotoMetadata) { item ->
                     val size = item.sizeBytes
                     if (size == null) unknownSizes += 1 else totalBytes = totalBytes.saturatingAdd(size)
                     manifestItems += ManifestItemSources.media(mediaProvider, item)
@@ -597,19 +636,37 @@ class MainActivity : ComponentActivity() {
                         firstStreamOpened = true
                     }
                 }
+                val mediaLocationNote = if (
+                    category == MediaCategory.PHOTOS &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    !includeOriginalPhotoMetadata
+                ) {
+                    " GPS EXIF може бути redacted Android; у передачу піде точний доступний потік, координати окремо не читаються."
+                } else if (category == MediaCategory.PHOTOS && includeOriginalPhotoMetadata) {
+                    " Оригінальні байти фото запитані після явного дозволу; застосунок не журналює координати."
+                } else {
+                    ""
+                }
                 val result = if (count == 0) {
                     "${category.contractId}: доступних елементів немає."
                 } else {
                     "${category.contractId}: $count елементів, " +
                         "відомий розмір ${formatBytes(totalBytes)}, " +
-                        "$unknownSizes без розміру; потік першого елемента відкрито."
+                        "$unknownSizes без розміру; потік першого елемента відкрито.$mediaLocationNote"
+                }
+                val method = when {
+                    category == MediaCategory.PHOTOS && includeOriginalPhotoMetadata ->
+                        "MediaStore.images.require_original"
+                    category == MediaCategory.PHOTOS && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                        "MediaStore.images.platform_redaction_allowed"
+                    else -> "MediaStore.${category.contractId}"
                 }
                 runOnUiThread {
                     rememberManifestSource(
                         ManifestCategorySource(
                             category.contractId,
                             "android.provider.MediaStore",
-                            "MediaStore.${category.contractId}",
+                            method,
                             manifestItems,
                         ),
                     )

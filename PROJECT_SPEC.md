@@ -10,7 +10,7 @@
 
 Створити продукт для перенесення даних між Android-пристроями різних виробників, який:
 
-1. Працює без ПК (APK-only) і з ПК (Windows-станція).
+1. Ціль продукту — підтримувати автономний APK-only сценарій і сценарій із Windows-станцією. Це цільове бачення, не опис готових функцій: зараз фізично підтверджений лише шлях Windows Station + ADB; APK-only передача ще не реалізована наскрізно. Актуальний стан і блокери наведені в `docs/project/RELEASE_READINESS.md`.
 2. Переносить максимально можливий обсяг даних офіційними механізмами Android.
 3. **Чесно** показує, що переноситься, що частково, а що неможливо — до початку перенесення.
 4. Дає per-category звіт із SHA-256 перевіркою й конкретною причиною невдач.
@@ -235,7 +235,7 @@ Windows Station показує фактично підтверджений пр�
       "items": [
         {
           "id": "media_123",
-          "sie": 4096000,
+          "size": 4096000,
           "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
           "metadata": {
             "path": "DCIM/Camera/IMG_001.jpg",
@@ -250,7 +250,7 @@ Windows Station показує фактично підтверджений пр�
       "items": [
         {
           "id": "c_42",
-          "sie": 128,
+          "size": 128,
           "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
           "metadata": {"format": "vCard"}
         }
@@ -266,15 +266,15 @@ Windows Station показує фактично підтверджений пр�
 
 Для `contacts` один item відповідає одному агрегованому запису з `ContactsContract.Contacts`; основне байтове представлення — platform-generated vCard через `Contacts.CONTENT_VCARD_URI`. Версію vCard визначає системний provider, тому продукт не обіцяє vCard 4.0. SHA-256 рахується за точними vCard bytes. Джерельні `RawContacts.ACCOUNT_TYPE/ACCOUNT_NAME` не додаються до item metadata: vCard переносить контактні дані, не sync identity чи доступ до облікового запису.
 
-Перед створенням `manifest.json` ManifestBuilder має отримати точний невід’ємний `sie` і SHA-256 кожного item. Якщо provider не знає sie, ManifestBuilder потоково створює власний immutable snapshot, рахує байти й хеш та лише тоді додає item у manifest. `null`, `-1` чи підстановка `0` не є допустимим `manifest item sie`; при помилці читання item отримує явний per-item failure і не потрапляє в невалідний manifest.
+Перед створенням `manifest.json` ManifestBuilder має отримати точний невід’ємний `size` і SHA-256 кожного item. Якщо provider не знає size, ManifestBuilder потоково створює власний immutable snapshot, рахує байти й хеш та лише тоді додає item у manifest. `null`, `-1` чи підстановка `0` не є допустимим `manifest item size`; при помилці читання item отримує явний per-item failure і не потрапляє в невалідний manifest.
 
 ### Порівняння з ціллю та автоматичне пропускання дублікатів
 
-Після побудови manifest, але **до Space Preflight і першого chunk**, ціль інвентаризує доступні destination файли/медіа та порівнює їх із джерелом. Простий повтор запуску з новим `transfer_id` не повинен повторно займати місце вже відновленими файлами. Автоматичний точний match потребує однакових category, byte sie і SHA-256; ім’я, шлях і дата — лише допоміжні ознаки, не доказ. Метадані sie одразу відсіюють більшість items; source partial fingerprint перших/останніх 4 KiB формується в тій самій обов’язковій source read, що й SHA-256, та передається окремим версійованим dedup extension. Target рахує такий самий fingerprint лише для items-кандидатів однакового розміру; повний target SHA-256 рахується тільки при збігу partial fingerprint. Partial fingerprint ніколи не є доказом skip. Точний duplicate не передається й не створюється вдруге, а позначається `ALREADY_PRESENT` у звіті. Після порівняння Space Preflight і ETA рахуються лише для items, що залишились. Preflight має видимий progress і окрему scan ETA; він може бути скасований до першого запису.
+Після побудови manifest, але **до Space Preflight і першого chunk**, ціль інвентаризує доступні destination файли/медіа та порівнює їх із джерелом. Простий повтор запуску з новим `transfer_id` не повинен повторно займати місце вже відновленими файлами. Автоматичний точний match потребує однакових category, byte size і SHA-256; ім’я, шлях і дата — лише допоміжні ознаки, не доказ. Метадані size одразу відсіюють більшість items; source partial fingerprint перших/останніх 4 KiB формується в тій самій обов’язковій source read, що й SHA-256, та передається окремим версійованим dedup extension. Target рахує такий самий fingerprint лише для items-кандидатів однакового розміру; повний target SHA-256 рахується тільки при збігу partial fingerprint. Partial fingerprint ніколи не є доказом skip. Точний duplicate не передається й не створюється вдруге, а позначається `ALREADY_PRESENT` у звіті. Після порівняння Space Preflight і ETA рахуються лише для items, що залишились. Preflight має видимий progress і окрему scan ETA; він може бути скасований до першого запису.
 
-Пропуск дозволений лише для категорії з повним scan coverage. Якщо URI/permission відсутній, Android 14 photo access обмежений вибраними фото або scan перервався, результат цієї категорії — `UNKNOWN/INCOMPLETE`, а не «дублікатів немає»; для невідомих items не вигадувати skip. Scan/verification time показується окремо від data-transfer ETA. Хеш-кеш можна повторно використовувати лише коли валідовано identity/sie/modified time та MediaStore generation; кеш не скасовує фінальну перевірку SHA-256 для кандидатів.
+Пропуск дозволений лише для категорії з повним scan coverage. Якщо URI/permission відсутній, Android 14 photo access обмежений вибраними фото або scan перервався, результат цієї категорії — `UNKNOWN/INCOMPLETE`, а не «дублікатів немає»; для невідомих items не вигадувати skip. Scan/verification time показується окремо від data-transfer ETA. Хеш-кеш можна повторно використовувати лише коли валідовано identity/size/modified time та MediaStore generation; кеш не скасовує фінальну перевірку SHA-256 для кандидатів.
 
-Для перекодованих/масштабованих Viber та інших фото додається другий рівень, який аналізує **всі фото незалежно від byte sie**: pHash/dHash формують кандидатні пари, а окремий image verifier перевіряє crop/rotation, геометрію, візуальне співпадіння та якість. Один perceptual hash або схожість сцени не є достатнім доказом: схожі кадри серії можуть бути різними фотографіями. Після локального benchmark високоточні підтверджені повтори автоматично пропускаються, якщо на цілі вже є рівноцінна або краща версія. Якщо source-версія краща, система автоматично зберігає її як upgrade у TransferKit collection; сторонній файл не перезаписується й не видаляється. Невпевнена схожість автоматично копіюється в окрему TransferKit collection, щоб не вимагати від користувача ручного розбору й не втратити кадр. Для завершення звичайного плану не допускається `conflict`, який чекає на item-by-item рішення користувача; потрібні дозволи Android або системне підтвердження на пакетну операцію можуть залишатися платформною вимогою, але не ручним пошуком дублікатів.
+Для перекодованих/масштабованих Viber та інших фото додається другий рівень, який аналізує **всі фото незалежно від byte size**: pHash/dHash формують кандидатні пари, а окремий image verifier перевіряє crop/rotation, геометрію, візуальне співпадіння та якість. Один perceptual hash або схожість сцени не є достатнім доказом: схожі кадри серії можуть бути різними фотографіями. Після локального benchmark високоточні підтверджені повтори автоматично пропускаються, якщо на цілі вже є рівноцінна або краща версія. Якщо source-версія краща, система автоматично зберігає її як upgrade у TransferKit collection; сторонній файл не перезаписується й не видаляється. Невпевнена схожість автоматично копіюється в окрему TransferKit collection, щоб не вимагати від користувача ручного розбору й не втратити кадр. Для завершення звичайного плану не допускається `conflict`, який чекає на item-by-item рішення користувача; потрібні дозволи Android або системне підтвердження на пакетну операцію можуть залишатися платформною вимогою, але не ручним пошуком дублікатів.
 
 Перша реалізація охоплює MediaStore фото/відео/аудіо, які застосунок справді може прочитати; SAF documents/downloads та API-категорії додаються окремо з відповідними scope/permission rules. Сканування працює локально, не завантажує зображення в мережу, не видаляє і не перезаписує звичайні файли користувача автоматично. `ALREADY_PRESENT` та `NEAR_DUPLICATE_SKIPPED` — рішення плану/звіту, а не помилки receipt і не невдалий restore.
 
@@ -289,8 +289,8 @@ Windows Station показує фактично підтверджений пр�
 Обчислення для одного спільного volume:
 
 ```text
-total_sie = Σ selected item.sie
-largest_item = max(item.sie), або 0 для порожнього manifest
+total_size = Σ selected item.size
+largest_item = max(item.size), або 0 для порожнього manifest
 safety_margin = max(100 MiB, allocatable_bytes / 20)
 safe_available = max(0, allocatable_bytes - safety_margin)
 
@@ -298,11 +298,11 @@ batch_peak = total_staging_bytes + total_restore_estimate
 streaming_peak = total_restore_estimate + largest_item_staging
 ```
 
-Для звичайних файлів `total_staging_bytes = total_sie`, а `total_restore_estimate ≈ total_sie`, тому batch оцінюється як `2 × total_sie`, streaming — як `total_sie + largest_item`. Для API-записів provider адаптер додає консервативну оцінку restore storage; невідома оцінка не дає системі права обіцяти, що всі дані помістяться. Для різних volume перевіряються окремі піки staging і destination.
+Для звичайних файлів `total_staging_bytes = total_size`, а `total_restore_estimate ≈ total_size`, тому batch оцінюється як `2 × total_size`, streaming — як `total_size + largest_item`. Для API-записів provider адаптер додає консервативну оцінку restore storage; невідома оцінка не дає системі права обіцяти, що всі дані помістяться. Для різних volume перевіряються окремі піки staging і destination.
 
 Для streaming формула враховує момент копіювання зі staging у destination: до копії вже відновлено `total_restore_estimate - current_item`, а під час копії одночасно існують staging і destination copy цього item. Для найбільшого item пік дорівнює `(total_restore_estimate - largest_item) + 2 × largest_item = total_restore_estimate + largest_item`.
 
-Якщо batch влазить — за замовчуванням використовується batch без діалогу, з інформаційною оцінкою. Якщо batch не влазить, але streaming усіх items влазить — показати вибір streaming, звільнити місце або скасувати. Якщо всі items не влазять потоково — відсортувати items від найменшого до найбільшого. Для candidate item перевірка має бути `candidate_restore_sum + max(candidate_staging_sie) <= safe_available`; за однакового item sie для staging і restore це спрощується до `running_sum + 2 × item.sie <= safe_available`. Це гарантує максимальну кількість найменших items і не відкидає item-и, які фізично вміщуються. Якщо не вміщується навіть найменший item — запропонувати лише звільнення місця або скасування. `TARGET_ITEM_TOO_LARGE` означає, що окремий item не проходить бюджет; `TARGET_SPACE_INSUFFICIENT` означає, що всі вибрані items не вміщуються, хоча підмножина може вміститися. Реальна помилка запису лишається `TARGET_NO_SPACE`.
+Якщо batch влазить — за замовчуванням використовується batch без діалогу, з інформаційною оцінкою. Якщо batch не влазить, але streaming усіх items влазить — показати вибір streaming, звільнити місце або скасувати. Якщо всі items не влазять потоково — відсортувати items від найменшого до найбільшого. Для candidate item перевірка має бути `candidate_restore_sum + max(candidate_staging_size) <= safe_available`; за однакового item size для staging і restore це спрощується до `running_sum + 2 × item.size <= safe_available`. Це гарантує максимальну кількість найменших items і не відкидає item-и, які фізично вміщуються. Якщо не вміщується навіть найменший item — запропонувати лише звільнення місця або скасування. `TARGET_ITEM_TOO_LARGE` означає, що окремий item не проходить бюджет; `TARGET_SPACE_INSUFFICIENT` означає, що всі вибрані items не вміщуються, хоча підмножина може вміститися. Реальна помилка запису лишається `TARGET_NO_SPACE`.
 
 SpaceReport передає source обсягів, вибрану стратегію `batch`, `streaming`, `drop-largest` або `insufficient`, чи потрібне рішення користувача, та явні `kept_item_ids`/`skipped_item_ids` для drop-largest. У пропущених items немає receipt про отримані bytes: вони залишаються у manifest, відображаються як `SKIPPED_NO_SPACE` у локальному плані та як per-item failure/decision у report. Повторна спроба пропущених items — окрема передача з новим `transfer_id`; звіт і фінальний receipt попереднього ID не переписуються.
 
@@ -320,7 +320,7 @@ SpaceReport передає source обсягів, вибрану стратег�
 
 **Статус Wi-Fi pairing:** `TlsPairing` має runtime TLS 1.3 provider probe і in-memory one-time token primitive (256-bit, bounded TTL, single-use, redacted `toString`). Він не генерує сертифікат, не відкриває sockets, не робить pin validation і не кодує QR; token helper не означає, що peers уже автентифіковані.
 
-**Статус Backup Relay:** Python `backup_relay.py` має потоковий ZIP writer і безпечний extract-to-new-staging primitive. Він приймає лише manifest-verified successful item set, повторно хешує bytes під час створення, schema-validates manifest/receipt; extraction не довіряє ZIP paths, вимагає user-supplied total budget і перевіряє кожний item sie/SHA-256 до повернення staging. Опційний парольний контейнер `TKAE` v1 потоково шифрує весь ZIP AES-256-GCM; ключ виводиться Scrypt (`N=32768`, `r=8`, `p=1`), header автентифікується як AAD, а password не зберігається. Під час імпорту потрібен тимчасовий plaintext ZIP у user temp directory; він видаляється після операції, але аварійне завершення може лишити тимчасові bytes, а звичайне видалення не є secure wipe. Парольний file-picker/UI flow ще не підключений; ciphertext захищає конфіденційність/цілісність, але не доводить автора архіву.
+**Статус Backup Relay:** Python `backup_relay.py` має потоковий ZIP writer і безпечний extract-to-new-staging primitive. Він приймає лише manifest-verified successful item set, повторно хешує bytes під час створення, schema-validates manifest/receipt; extraction не довіряє ZIP paths, вимагає user-supplied total budget і перевіряє кожний item size/SHA-256 до повернення staging. Опційний парольний контейнер `TKAE` v1 потоково шифрує весь ZIP AES-256-GCM; ключ виводиться Scrypt (`N=32768`, `r=8`, `p=1`), header автентифікується як AAD, а password не зберігається. Під час імпорту потрібен тимчасовий plaintext ZIP у user temp directory; він видаляється після операції, але аварійне завершення може лишити тимчасові bytes, а звичайне видалення не є secure wipe. Парольний file-picker/UI flow ще не підключений; ciphertext захищає конфіденційність/цілісність, але не доводить автора архіву.
 
 **USB/ADB через Windows Station:** Windows є ADB-хостом; після ввімкнення USB debugging користувач підтверджує RSA-довіру цьому комп’ютеру. Чанки йдуть через `adb push/pull` або `adb forward` до локального сокета Android-приймача. Це не пряме ADB-з’єднання між двома телефонами. Для Android↔Android типовий шлях — TLS через локальну Wi-Fi мережу або точку доступу, без ADB.
 
@@ -350,7 +350,7 @@ Recovery може початися з будь-якого режиму та тр
 
 Windows Station показує статус у рядку стану та toast; Android foreground service — постійне сповіщення з прогресом і причиною. Recovery screen показує пару пристроїв, час початку/переривання, прогрес по категоріях, останній item/chunk і чотири дії: «Продовжити», «Перевірити й продовжити», «Почати заново», «Скасувати назавжди». Restart має окреме підтвердження: буде втрачено лише тимчасовий прогрес цієї передачі, цільові дані користувача не змінюються.
 
-Адаптивна політика може зменшити chunk sie 4 MiB → 1 MiB після понад трьох розривів за п’ять хвилин, а потім до 256 KiB після понад п’яти; після п’яти хвилин без розривів поступово повертає 4 MiB. Поточний wire format вимагає однакового розміру всіх chunk-ів, крім останнього, і не містить byte offset; тому зміна розміру всередині item потребує версійованого protocol extension із явним offset та підтримкою variable-sie chunks. До цього extension політика змінює розмір тільки на межі item, а вже частковий item продовжується з чинними параметрами.
+Адаптивна політика може зменшити chunk size 4 MiB → 1 MiB після понад трьох розривів за п’ять хвилин, а потім до 256 KiB після понад п’яти; після п’яти хвилин без розривів поступово повертає 4 MiB. Поточний wire format вимагає однакового розміру всіх chunk-ів, крім останнього, і не містить byte offset; тому зміна розміру всередині item потребує версійованого protocol extension із явним offset та підтримкою variable-size chunks. До цього extension політика змінює розмір тільки на межі item, а вже частковий item продовжується з чинними параметрами.
 
 ### Етап 6: Прийом і перевірка (ціль)
 
@@ -378,7 +378,7 @@ Per-category restorer:
 
 Позитивний file restore означає: source bytes збіглися зі staging SHA-256, destination URI перечитано до публікації та ще раз після `IS_PENDING=0`; лише тоді item отримує `RESTORED`. `receipt.json` фіксує прийом і receiver verification та не переписується після restore; усі receipt counters/failures мають бути повторені у final report, а restore/post-verification failures додаються до report окремо. Python export API може перевірити цю узгодженість, коли йому передано receipt. Автоматизований API readback реалізований лише для MediaStore; решта категорій не можуть отримати `OK` без власного adapter і destination readback.
 
-**APK install scaffold:** `ApkInstallCoordinator` тепер приймає лише короткоживучий одноразовий approval token, прив’язаний до transfer, manifest, одного item, sie та SHA-256; довільний boolean більше не дає права створити `PackageInstaller.Session`. Є окремий діалог підтвердження одного пакета, але його ще не під’єднано до APK inbox, Activity status callback чи sender. Coordinator потоково записує APK у session, виконує `fsync` і повторно хешує session bytes до commit. Android може показати системне підтвердження; `RESTORED` дозволено лише після `STATUS_SUCCESS` та query package/version. Збірка gate і dialog заблокована локальним з’єднанням Gradle daemon; APK-only transfer ще не готовий до end-to-end використання.
+**APK install scaffold:** `ApkInstallCoordinator` тепер приймає лише короткоживучий одноразовий approval token, прив’язаний до transfer, manifest, одного item, size та SHA-256; довільний boolean більше не дає права створити `PackageInstaller.Session`. Є окремий діалог підтвердження одного пакета, але його ще не під’єднано до APK inbox, Activity status callback чи sender. Coordinator потоково записує APK у session, виконує `fsync` і повторно хешує session bytes до commit. Android може показати системне підтвердження; `RESTORED` дозволено лише після `STATUS_SUCCESS` та query package/version. Збірка gate і dialog заблокована локальним з’єднанням Gradle daemon; APK-only transfer ще не готовий до end-to-end використання.
 
 ### Етап 8: Пост-перевірка й звіт
 
@@ -429,7 +429,7 @@ Per-category restorer:
 
 * **API:** `PackageManager.getInstalledPackages()`, `ApplicationInfo.publicSourceDir`.
 * **Дозволи:** `QUERY_ALL_PACKAGES` (Android 11+).
-* **Метод:** для явно вибраного APK пункту прочитати `ApplicationInfo.sourceDir`, потоково виміряти sie/SHA-256 і повторно перевірити digest під час копіювання. Не включати локальний source path у manifest. Перша реалізація включає лише user-installed single-file APK; system/updated-system, split та unreadable packages не передаються й показуються окремими лічильниками. Кожний manifest item містить package name і version, потрібні для адресного restore.
+* **Метод:** для явно вибраного APK пункту прочитати `ApplicationInfo.sourceDir`, потоково виміряти size/SHA-256 і повторно перевірити digest під час копіювання. Не включати локальний source path у manifest. Перша реалізація включає лише user-installed single-file APK; system/updated-system, split та unreadable packages не передаються й показуються окремими лічильниками. Кожний manifest item містить package name і version, потрібні для адресного restore.
 * **Відновлення:** `PackageInstaller` — явне підтвердження користувача per-APK. `REQUEST_INSTALL_PACKAGES`.
 * **Доступно:** лише для видимих і читабельних package sources; `QUERY_ALL_PACKAGES` має окремі вимоги Play policy. `PackageManager` visibility не є гарантією, що package APK повний або встановлюваний на цілі. Split APK поки відкидаються як група; системні APK не експортуються.
 
@@ -496,7 +496,7 @@ JSON Schema: `shared/manifest.schema.json`.
       "items": [
         {
           "id": "photo-1",
-          "sie": 0,
+          "size": 0,
           "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
           "metadata": {"path": "DCIM/Camera/photo-1.jpg", "mtime": 0}
         }
@@ -518,7 +518,7 @@ category_id_hash: 4 bytes
 item_id_hash: 4 bytes
 chunk_index: uint32
 total_chunks: uint32
-chunk_sie: uint32
+chunk_size: uint32
 payload_crc32: uint32
 payload: bytes
 ```
@@ -648,7 +648,7 @@ class VendorAdapter:
 
 ### 10.2 Що обов’язково
 
-* Явне підтвердження користувача перед фазою відновлення (запис). Підтвердження має показати обсяг вибору, кількість items і загальний розмір без зайвого розкриття вмісту; execution layer приймає лише короткоживучий одноразовий дозвіл, прив’язаний до transfer, digest маніфесту та вибраних item IDs/sie/SHA-256. Дозвіл споживається до першого запису кожного item; скасування, зміна вибору, process death або закінчення строку вимагають нового підтвердження. Невідомий/повторно використаний дозвіл не дозволяє запис.
+* Явне підтвердження користувача перед фазою відновлення (запис). Підтвердження має показати обсяг вибору, кількість items і загальний розмір без зайвого розкриття вмісту; execution layer приймає лише короткоживучий одноразовий дозвіл, прив’язаний до transfer, digest маніфесту та вибраних item IDs/size/SHA-256. Дозвіл споживається до першого запису кожного item; скасування, зміна вибору, process death або закінчення строку вимагають нового підтвердження. Невідомий/повторно використаний дозвіл не дозволяє запис.
 * Окреме підтвердження перед встановленням APK.
 * Перед transfer — Space Preflight; strategy selection не знімає явного підтвердження restore.
 * Batch і streaming проходять однакові per-item SHA-256 та post-verification; для MediaStore item лишається непублічним до перевірки записаного destination.
@@ -873,7 +873,7 @@ Development sideload scripts live in `android-client/`:
 4. Перервана передача резюмується з того ж чанка.
 5. Звіт експортується в JSON і CSV.
 6. Жодного прихованого збору даних.
-7. Працює без ПК (APK-only) для Tier A+B+D.
+7. Цільова вимога — APK-only для Tier A+B+D. Поточна реалізація цього сценарію не проходить end-to-end і не має рекламуватися як доступна функція.
 8. Працює з ПК для всіх Tier A–F.
 9. Жодних `root`/`su`/`reboot` у probe.
 10. Оновлення capability-манифесту на новій парі пристроїв за ≤30 секунд.
@@ -890,7 +890,7 @@ Development sideload scripts live in `android-client/`:
 21. Staging bytes, pre-existing leftover і destination estimates віднесені до правильних volume; активний checkpoint не очищується Space Preflight.
 22. При 2.5 GB selected media, 5 MB largest item і 3.0 GB allocatable target вибирає streaming, а при 1.5 GB не обіцяє завершення всіх items.
 23. Усі Space strategy/user choices записуються у `report.decisions`; skipped items не приписуються як отримані в receipt.
-24. Cross-transfer exact duplicates до першого chunk автоматично пропускаються лише після `sie + partial fingerprint + full SHA-256` та повного category inventory; фото зі зміненим розміром проходять окремий near-duplicate verifier. План/report показує пропущені count/bytes, scan coverage і scan ETA; не створюється item-by-item manual conflict queue.
+24. Cross-transfer exact duplicates до першого chunk автоматично пропускаються лише після `size + partial fingerprint + full SHA-256` та повного category inventory; фото зі зміненим розміром проходять окремий near-duplicate verifier. План/report показує пропущені count/bytes, scan coverage і scan ETA; не створюється item-by-item manual conflict queue.
 25. Для тестового фото з GPS EXIF: після явного `ACCESS_MEDIA_LOCATION` grant і `MediaStore.setRequireOriginal()` джерельні payload bytes/SHA-256 мають зберігати оригінальний EXIF; без grant координати вважаються redacted/недоступними й не обіцяються. Інші вбудовані metadata перевіряються end-to-end разом із destination post-verify.
 
 ---

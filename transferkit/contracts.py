@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from enum import Enum, StrEnum
 from pathlib import Path
@@ -185,14 +186,14 @@ class ContractModel(BaseModel):
 
 
 class DeviceInfo(ContractModel):
-    manufacturer: str = Field(min_length=1, max_length=128)
-    model: str = Field(min_length=1, max_length=128)
-    sdk: int = Field(ge=26)
-    fingerprint: str = Field(min_length=1, max_length=512)
+    manufacturer: str = Field(min_length=1, max_length=128, pattern=r"\S")
+    model: str = Field(min_length=1, max_length=128, pattern=r"\S")
+    sdk: int = Field(ge=26, le=2_147_483_647)
+    fingerprint: str = Field(min_length=1, max_length=512, pattern=r"\S")
 
 
 class ManifestItem(ContractModel):
-    id: str = Field(min_length=1, max_length=512)
+    id: str = Field(min_length=1, max_length=512, pattern=r"\S")
     size: int = Field(ge=0, le=9_007_199_254_740_991)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -210,8 +211,8 @@ class ManifestItem(ContractModel):
 
 
 class ManifestCategory(ContractModel):
-    provider: str = Field(min_length=1, max_length=128)
-    method: str = Field(min_length=1, max_length=128)
+    provider: str = Field(min_length=1, max_length=128, pattern=r"\S")
+    method: str = Field(min_length=1, max_length=128, pattern=r"\S")
     items: list[ManifestItem]
 
     @model_validator(mode="after")
@@ -229,12 +230,54 @@ class TransferManifest(ContractModel):
     source_device: DeviceInfo
     categories: dict[CategoryId, ManifestCategory] = Field(min_length=1)
 
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def manifest_timestamp_has_canonical_precision(cls, value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value
+        if not isinstance(value, str) or re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{6})?Z",
+            value,
+        ) is None:
+            raise ValueError("created_at must use canonical UTC seconds or six-digit microseconds")
+        return value
+
+    @field_validator("transfer_id", mode="before")
+    @classmethod
+    def transfer_id_must_be_canonical(cls, value: Any) -> UUID:
+        if isinstance(value, UUID):
+            return value
+        if not isinstance(value, str):
+            raise ValueError("transfer_id must be a canonical lowercase UUID")
+        try:
+            parsed = UUID(value)
+        except ValueError as exc:
+            raise ValueError("transfer_id must be a canonical lowercase UUID") from exc
+        if str(parsed) != value:
+            raise ValueError("transfer_id must be a canonical lowercase UUID")
+        return parsed
+
     @field_validator("created_at")
     @classmethod
     def created_at_must_be_utc(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() != timezone.utc.utcoffset(value):
             raise ValueError("created_at must be an RFC 3339 UTC timestamp")
         return value
+
+    @model_validator(mode="after")
+    def wire_item_ids_must_be_collision_free(self) -> TransferManifest:
+        # Keep sender-side validation aligned with the receiver's 32-bit wire IDs.
+        from .integrity import id_hash
+
+        seen: set[bytes] = set()
+        for category_id, category in self.categories.items():
+            category_hash = id_hash(category_id.value)
+            for item in category.items:
+                wire_key = category_hash + id_hash(item.id)
+                if wire_key in seen:
+                    raise ValueError("manifest contains a wire ID hash collision")
+                seen.add(wire_key)
+        return self
 
 
 class CapabilityEntry(ContractModel):

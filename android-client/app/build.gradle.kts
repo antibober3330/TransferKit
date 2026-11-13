@@ -5,6 +5,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+dependencyLocking {
+    lockAllConfigurations()
+}
+
 android {
     namespace = "com.transferkit.client"
     compileSdk = 34
@@ -30,6 +34,10 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    sourceSets {
+        getByName("androidTest").assets.srcDir(rootProject.file("../shared"))
     }
 
     compileOptions {

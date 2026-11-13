@@ -923,3 +923,75 @@ Android/Station integration, near-duplicate verifier/benchmark та physical
 acceptance ще не реалізовані. Спочатку закрити MediaStore photos/videos/audio,
 потім SAF file categories та окремо idempotency для API-категорій. GPS EXIF
 збереження також має окрему runtime permission/setRequireOriginal перевірку.
+
+======================================================================
+ІДЕЯ 6. Вертикальний фізичний E2E acceptance gate
+======================================================================
+
+Дата: 2026-11-13
+
+Причина та доказ:
+Фізичний synthetic S20→M31 сценарій пройшов на одному item (65 536 байтів):
+джерело стартувало з Android UI, реальні `StationWindow` workers у headless Qt
+harness виконали authenticated USB/ADB relay, а ціль повернула schema-valid
+receipt. Далі користувач підтвердив restore у Android UI; ціль повідомила 1/1,
+0 integrity/other/cleanup errors, а незалежно прочитані байти цільового
+MediaStore item дали точний SHA-256 match. Отже receive, restore і destination
+post-verification уже були фізично пройдені, але не як повний видимий desktop
+flow: desktop UI залишався headless, Windows Station ще не отримує restore
+outcome і не формує фінальний report.
+
+Очікувана користь:
+Рано виявити розриви між Android UI, Windows Station, транспортом, відновленням,
+перевіркою цільових байтів і звітуванням. Це дасть перевірний продуктовий
+вертикальний сценарій і не дозволить сплутати успішне отримання з відновленням.
+
+Залежності й ризики:
+Потрібні два доступні телефони, USB/ADB, синтетичний test item, запуск source та
+receiver з UI, збережений receipt, явне restore approval, повторне читання
+цільового об’єкта для SHA-256 і доступний Windows report flow. Особисті дані не
+сканувати; тестові файли створювати з унікальним іменем та прибирати лише після
+перевірки власного тестового об’єкта. Receive `verified` не дорівнює restore
+`OK`; звіт не можна позначати успішним без destination post-verification.
+
+Оцінка можливості: підтверджено для physical receive→Android restore→незалежний
+destination post-verify одного synthetic item; видимий desktop flow із
+поверненням restore outcome у Station та фінальним report ще потребує реалізації.
+
+Стан: частково виконано як обов’язковий release gate. Physical evidence є у
+`WORK_CHECKLIST.md` і `docs/project/RELEASE_READINESS.md`; лишилися видимий
+desktop UI acceptance, повернення restore outcome/report та окремі
+disconnect/recovery acceptance. Після тесту синтетичний source-файл і точний
+target MediaStore item перевірено та прибрано; збережено лише receipt/result/
+history evidence без payload.
+
+======================================================================
+ІДЕЯ 7. Відтворювані збірки та розмежування цілі/поточного стану
+======================================================================
+
+Дата: 2026-11-13
+
+Причина та доказ:
+`requirements.txt` задає лише нижні межі версій, а release readiness фіксував відсутність
+Python/Gradle lock та автоматичного CI. Також §1/§17 `PROJECT_SPEC.md` можна було
+прочитати як обіцянку готового APK-only режиму, хоча єдиний фізично пройдений шлях
+потребує Windows Station + ADB. У Wi-Fi профілі TLS 1.3 вже є контрактом; `TlsPairing`
+ще не створює sockets і не перевіряє certificate pin.
+
+Очікувана користь:
+Lock-файли зменшують різницю між локальною машиною та CI; автоматичні Python/Android
+перевірки ловлять регресії на push/PR. Виразне маркування цілі й реалізації не дозволяє
+сплутати roadmap із доступною функцією.
+
+Залежності й ризики:
+Python lock прив’язаний до Windows x64/CPython 3.14.4 і не є універсальним для іншої ОС.
+Gradle lock треба переглядати при зміні dependencies. GitHub Actions потребує регулярного
+оновлення action versions і першого hosted-run підтвердження. Ліцензія — юридичний вибір
+власника; приватний репозиторій не отримує ліцензію автоматично.
+
+Оцінка можливості: підтверджено для CI-конфігурації й dependency locking; clean install,
+hosted run і license choice ще очікують підтвердження.
+
+Стан: частково реалізовано — додано requirements-lock-win-py314.txt, Gradle app lockfile
+та `.github/workflows/ci.yml`; `PROJECT_SPEC.md` уточнено. Перший CI run, чиста інсталяція
+lock-файлів і рішення про ліцензію лишаються відкритими.

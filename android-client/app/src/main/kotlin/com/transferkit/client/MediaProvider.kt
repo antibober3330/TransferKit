@@ -29,6 +29,8 @@ data class MediaItem(
     val mimeType: String?,
     val modifiedAtSeconds: Long?,
     val relativePath: String?,
+    /** The MediaStore stream may be redacted, so the indexed file size is only an estimate. */
+    val providerSizeMayDiffer: Boolean = false,
 ) {
     fun manifestMetadata(): Map<String, Any> = buildMap {
         put("path", (relativePath ?: "") + displayName)
@@ -71,12 +73,19 @@ class MediaProvider(context: Context) {
             android.content.pm.PackageManager.PERMISSION_GRANTED
     }
 
+    fun hasMediaLocationAccess(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+        appContext.checkSelfPermission(android.Manifest.permission.ACCESS_MEDIA_LOCATION) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+
     /** Enumerates one row at a time; callers can hash/read each item before advancing the cursor. */
-    fun forEachMedia(category: MediaCategory, onItem: (MediaItem) -> Unit): Int {
+    fun forEachMedia(
+        category: MediaCategory,
+        includeOriginalPhotoMetadata: Boolean = false,
+        onItem: (MediaItem) -> Unit,
+    ): Int {
         if (!hasReadAccess(category)) {
             throw SecurityException("Read permission is required for ${category.contractId}")
         }
-
         val collection = when (category) {
             MediaCategory.PHOTOS -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             MediaCategory.VIDEOS -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
@@ -108,7 +117,8 @@ class MediaProvider(context: Context) {
 
             while (it.moveToNext()) {
                 val rowId = it.getLong(idIndex)
-                val itemUri = ContentUris.withAppendedId(collection, rowId)
+                val mediaUri = ContentUris.withAppendedId(collection, rowId)
+                val itemUri = uriForRead(mediaUri, category, includeOriginalPhotoMetadata)
                 val displayName = it.getString(nameIndex) ?: "item_$rowId"
                 val item = MediaItem(
                     categoryId = category.contractId,
@@ -119,6 +129,11 @@ class MediaProvider(context: Context) {
                     mimeType = it.stringOrNull(mimeIndex),
                     modifiedAtSeconds = it.longOrNull(modifiedIndex),
                     relativePath = it.stringOrNull(pathIndex),
+                    providerSizeMayDiffer = MediaOriginalAccessPolicy.providerSizeMayDiffer(
+                        category,
+                        Build.VERSION.SDK_INT,
+                        includeOriginalPhotoMetadata,
+                    ),
                 )
                 onItem(item)
                 count += 1
@@ -173,8 +188,32 @@ class MediaProvider(context: Context) {
         false
     }
 
-    fun openStream(item: MediaItem): InputStream =
+    fun openStream(item: MediaItem): InputStream = try {
         resolver.openInputStream(item.uri) ?: throw IOException("Could not open selected content URI")
+    } catch (failure: UnsupportedOperationException) {
+        throw IOException("Media provider cannot provide the requested source bytes", failure)
+    }
+
+    internal fun uriForRead(
+        uri: Uri,
+        category: MediaCategory,
+        includeOriginalPhotoMetadata: Boolean,
+    ): Uri {
+        val requireOriginal = MediaOriginalAccessPolicy.requiresMediaLocationPermission(
+            category,
+            Build.VERSION.SDK_INT,
+            includeOriginalPhotoMetadata,
+        )
+        if (!requireOriginal) return uri
+        if (!hasMediaLocationAccess()) {
+            throw SecurityException("Original photo metadata permission is required")
+        }
+        return try {
+            MediaStore.setRequireOriginal(uri)
+        } catch (failure: UnsupportedOperationException) {
+            throw IOException("MediaStore cannot provide original photo bytes", failure)
+        }
+    }
 
     private fun queryLastModifiedSeconds(uri: Uri): Long? = try {
         resolver.query(

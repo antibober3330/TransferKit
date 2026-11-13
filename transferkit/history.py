@@ -7,7 +7,7 @@ import re
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime, timeone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Mapping
 from uuid import UUID
@@ -25,7 +25,7 @@ from .report import report_json_bytes
 
 
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
-_TRANSFER_STATUSES = froenset(
+_TRANSFER_STATUSES = frozenset(
     {
         "RUNNING",
         "RECONNECTING",
@@ -40,19 +40,19 @@ _TRANSFER_STATUSES = froenset(
 )
 
 
-@dataclass(froen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class ItemCheckpoint:
     transfer_id: str
     category_id: CategoryId
     item_id: str
     next_expected_chunk: int
     total_chunks: int
-    chunk_sie: int
+    chunk_size: int
     next_byte_offset: int
     updated_at: str
 
 
-@dataclass(froen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class TransferHistoryRecord:
     transfer_id: str
     manifest_sha256: str
@@ -66,7 +66,7 @@ class TransferHistoryRecord:
     target_identity_fingerprint: str | None
 
 
-@dataclass(froen=True, slots=True)
+@dataclass(frozen=True, slots=True)
 class CategoryProgress:
     transfer_id: str
     category_id: CategoryId
@@ -86,7 +86,7 @@ class TransferHistory:
     def __init__(self, database_path: str | Path):
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialie()
+        self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=10, isolation_level=None)
@@ -116,7 +116,7 @@ class TransferHistory:
         finally:
             connection.close()
 
-    def _initialie(self) -> None:
+    def _initialize(self) -> None:
         connection = self._connect()
         try:
             connection.execute("PRAGMA journal_mode = WAL")
@@ -149,7 +149,7 @@ class TransferHistory:
                     item_id TEXT NOT NULL,
                     next_expected_chunk INTEGER NOT NULL CHECK(next_expected_chunk >= 0),
                     total_chunks INTEGER NOT NULL CHECK(total_chunks >= 1),
-                    chunk_sie INTEGER NOT NULL CHECK(chunk_sie >= 1),
+                    chunk_size INTEGER NOT NULL CHECK(chunk_size >= 1),
                     next_byte_offset INTEGER NOT NULL CHECK(next_byte_offset >= 0),
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (transfer_id, category_id, item_id),
@@ -162,7 +162,7 @@ class TransferHistory:
                     item_id TEXT NOT NULL,
                     chunk_index INTEGER NOT NULL CHECK(chunk_index >= 0),
                     byte_offset INTEGER NOT NULL CHECK(byte_offset >= 0),
-                    payload_sie INTEGER NOT NULL CHECK(payload_sie >= 0),
+                    payload_size INTEGER NOT NULL CHECK(payload_size >= 0),
                     payload_crc32 INTEGER NOT NULL CHECK(payload_crc32 BETWEEN 0 AND 4294967295),
                     PRIMARY KEY (transfer_id, category_id, item_id, chunk_index),
                     FOREIGN KEY (transfer_id, category_id, item_id)
@@ -211,7 +211,9 @@ class TransferHistory:
             self._ensure_column(connection, "active_transfers", "source_identity_fingerprint", "TEXT")
             self._ensure_column(connection, "active_transfers", "target_identity_fingerprint", "TEXT")
             self._ensure_column(connection, "active_transfers", "category_summary_json", "TEXT")
-            connection.execute("PRAGMA user_version = 3")
+            self._rename_column(connection, "item_checkpoints", "chunk_sie", "chunk_size")
+            self._rename_column(connection, "chunk_checkpoints", "payload_sie", "payload_size")
+            connection.execute("PRAGMA user_version = 4")
         finally:
             connection.close()
 
@@ -220,6 +222,14 @@ class TransferHistory:
         columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
         if column not in columns:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
+
+    @staticmethod
+    def _rename_column(connection: sqlite3.Connection, table: str, old: str, new: str) -> None:
+        columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if old in columns and new not in columns:
+            connection.execute(f"ALTER TABLE {table} RENAME COLUMN {old} TO {new}")
+        elif old in columns and new in columns:
+            raise sqlite3.DatabaseError(f"ambiguous legacy column pair: {table}.{old}/{new}")
 
     @staticmethod
     def _canonical_transfer_id(transfer_id: UUID | str) -> str:
@@ -232,7 +242,7 @@ class TransferHistory:
 
     @staticmethod
     def _now() -> str:
-        return format_utc_timestamp(datetime.now(timeone.utc))
+        return format_utc_timestamp(datetime.now(timezone.utc))
 
     def begin_transfer(
         self,
@@ -356,9 +366,9 @@ class TransferHistory:
         *,
         chunk_index: int,
         total_chunks: int,
-        chunk_sie: int,
+        chunk_size: int,
         byte_offset: int,
-        payload_sie: int,
+        payload_size: int,
         payload_crc32: int,
     ) -> ItemCheckpoint:
         canonical_id = self._canonical_transfer_id(transfer_id)
@@ -367,8 +377,8 @@ class TransferHistory:
             raise ValueError("item_id must not be empty")
         if total_chunks < 1 or chunk_index < 0 or chunk_index >= total_chunks:
             raise ValueError("chunk index must be within total_chunks")
-        if chunk_sie < 1 or chunk_sie > MAX_CHUNK_SIZE or payload_sie < 0 or payload_sie > chunk_sie:
-            raise ValueError("payload_sie must be between ero and chunk_sie")
+        if chunk_size < 1 or chunk_size > MAX_CHUNK_SIZE or payload_size < 0 or payload_size > chunk_size:
+            raise ValueError("payload_size must be between zero and chunk_size")
         if byte_offset < 0 or payload_crc32 < 0 or payload_crc32 > 0xFFFFFFFF:
             raise ValueError("invalid byte offset or CRC32")
         now = self._now()
@@ -388,14 +398,14 @@ class TransferHistory:
             ).fetchone()
             if current is not None and chunk_index < current["next_expected_chunk"]:
                 duplicate = connection.execute(
-                    "SELECT byte_offset, payload_sie, payload_crc32 FROM chunk_checkpoints "
+                    "SELECT byte_offset, payload_size, payload_crc32 FROM chunk_checkpoints "
                     "WHERE transfer_id = ? AND category_id = ? AND item_id = ? AND chunk_index = ?",
                     (*identity, chunk_index),
                 ).fetchone()
-                expected_duplicate = (byte_offset, payload_sie, payload_crc32)
+                expected_duplicate = (byte_offset, payload_size, payload_crc32)
                 if (
                     current["total_chunks"] != total_chunks
-                    or current["chunk_sie"] != chunk_sie
+                    or current["chunk_size"] != chunk_size
                     or duplicate is None
                     or tuple(duplicate) != expected_duplicate
                 ):
@@ -409,7 +419,7 @@ class TransferHistory:
             if byte_offset != expected_offset:
                 raise ValueError("chunk byte offset is not contiguous with the durable checkpoint")
             if current is not None and (
-                current["total_chunks"] != total_chunks or current["chunk_sie"] != chunk_sie
+                current["total_chunks"] != total_chunks or current["chunk_size"] != chunk_size
             ):
                 raise ValueError("chunk layout changed during an item")
 
@@ -427,7 +437,7 @@ class TransferHistory:
                 next_index = chunk_index + 1
                 new_partial = int(0 < next_index < total_chunks)
                 new_complete = int(next_index == total_chunks)
-                next_acknowledged_bytes = aggregate["acknowledged_bytes"] + payload_sie
+                next_acknowledged_bytes = aggregate["acknowledged_bytes"] + payload_size
                 next_partial_count = aggregate["items_partial"] + new_partial - previous_partial
                 next_complete_count = aggregate["items_chunk_complete"] + new_complete
                 if next_acknowledged_bytes > aggregate["total_bytes"]:
@@ -439,17 +449,17 @@ class TransferHistory:
             if current is None:
                 connection.execute(
                     "INSERT INTO item_checkpoints "
-                    "(transfer_id, category_id, item_id, next_expected_chunk, total_chunks, chunk_sie, next_byte_offset, updated_at) "
+                    "(transfer_id, category_id, item_id, next_expected_chunk, total_chunks, chunk_size, next_byte_offset, updated_at) "
                     "VALUES (?, ?, ?, 0, ?, ?, 0, ?)",
-                    (*identity, total_chunks, chunk_sie, now),
+                    (*identity, total_chunks, chunk_size, now),
                 )
             connection.execute(
                 "INSERT INTO chunk_checkpoints "
-                "(transfer_id, category_id, item_id, chunk_index, byte_offset, payload_sie, payload_crc32) "
+                "(transfer_id, category_id, item_id, chunk_index, byte_offset, payload_size, payload_crc32) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (*identity, chunk_index, byte_offset, payload_sie, payload_crc32),
+                (*identity, chunk_index, byte_offset, payload_size, payload_crc32),
             )
-            next_offset = byte_offset + payload_sie
+            next_offset = byte_offset + payload_size
             connection.execute(
                 "UPDATE item_checkpoints SET next_expected_chunk = ?, next_byte_offset = ?, updated_at = ? "
                 "WHERE transfer_id = ? AND category_id = ? AND item_id = ?",
@@ -479,7 +489,7 @@ class TransferHistory:
             item_id=row["item_id"],
             next_expected_chunk=row["next_expected_chunk"],
             total_chunks=row["total_chunks"],
-            chunk_sie=row["chunk_sie"],
+            chunk_size=row["chunk_size"],
             next_byte_offset=row["next_byte_offset"],
             updated_at=row["updated_at"],
         )

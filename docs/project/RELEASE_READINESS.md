@@ -1,6 +1,6 @@
 # TransferKit — release readiness
 
-**Знімок стану:** 2026-11-12
+**Знімок стану:** 2026-11-13
 
 **Висновок:** перевірний release-набір підготовлено, але продукт ще **не готовий до публічного релізу**. Наявний Android APK — debug build; основні migration acceptance і частина transport/restore функцій залишаються відкритими.
 
@@ -19,7 +19,7 @@
 | Android SDK | compile/target SDK 34, min SDK 26, Build Tools 34.0.0 | `android-client/app/build.gradle.kts`, `BUILDING_AND_TESTING.md` |
 | Wire format | поточні transport/control frames — version 1 | `shared/protocol.md`, Python/Kotlin codecs |
 
-Python dependencies мають нижні межі, а не повний lock-файл. Наведені exact versions описують лише середовище цієї перевірки; вони не гарантують тотожну збірку на іншому ПК. Перед публікацією слід додати й перевірити повний dependency lock та записати вихідні версії/хеші.
+Python lock створено для Windows x64/CPython 3.14.4 у `requirements-lock-win-py314.txt`; він містить exact versions усієї виявленої залежнісної гілки, але поки без artifact hashes і без підтвердженої clean-venv інсталяції. Android залежності зафіксовані у `android-client/app/gradle.lockfile`; Gradle dependency locking увімкнено. Потрібно перевірити clean install/build з обох lock-файлів. `.github/workflows/ci.yml` запускає Python suite і Android unit/build; hosted run і branch protection ще не підтверджені.
 
 ## Збірочні скрипти та результати
 
@@ -40,29 +40,31 @@ Windows `build.bat` створює PyInstaller **onedir**, а не інстал�
 
 ## Перевірений стан на дату знімка
 
-- Python: останній повний запуск — **144/144 passed** (`python -m unittest discover -s tests -v`), включно з Recovery frame codecs і version-source consistency. Android target inventory і transfer filtering для dedup ще не інтегровані.
-- Android unit: останній локальний запуск **43/43**; останній записаний instrumentation — **21/21 на кожному з чотирьох телефонів**: Samsung S20 Ultra/API 33, Samsung M31/API 31, Samsung A04e/API 33 і Motorola moto g06/API 35. Instrumentation передує framing-only зміні; повторно не запускався. Перевірено Keystore identity, SQLite v1/v2→v3 migration, exact chunk ledger, failure ACK, partial checkpoint, staging locator, retention та status guard.
-- Android Gradle: `:app:testDebugUnitTest :app:assembleDebug` після переходу на `0.1.0-alpha.1` завершилися `BUILD SUCCESSFUL`; Kotlin unit — 43/43. Instrumentation/device acceptance для цієї framing-only зміни не повторювали.
+- Python: останній повний запуск — **146/146 passed** (`python -m unittest discover -s tests -v`), включно з Recovery frame codecs, version consistency і shared manifest contract vectors. Android target inventory та transfer filtering для dedup ще не інтегровані.
+- Android unit: останній локальний запуск — **50/50 passed**. Новий shared manifest parser instrumentation — **25/25 vectors на кожному** з Samsung S20 Ultra/API 33 і Samsung M31/API 31; окремо original-photo URI gate пройшов 2/2 tests у granted і denied станах на обох телефонах. Legacy instrumentation для ширших receiver/restore suites — 21/21 на кожному з чотирьох телефонів у попередній сесії.
+- Android Gradle: `:app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest` — `BUILD SUCCESSFUL`. Manifest schema/Pydantic/Kotlin rules вирівняні; shared vector corpus перевіряє canonical UUID, integer bounds/forms, timestamp precision, Unicode lengths, strict properties, SHA, duplicate/wire-ID collisions і 64 KiB metadata boundary.
 - Фізична перевірка: Samsung A04e/API 33 → Motorola moto g06/API 35, synthetic payload 65 536 байтів/16 chunks, schema-valid receive receipt і незалежний SHA-256 збіг. Тимчасові APK після instrumentation прибрані з A04e/Moto; pre-existing S20/M31 installations intentionally preserved.
 - ADB: усі чотири explicit Wi-Fi ADB serials повернули `get-state=device` після тестів. `pm path` порожній на A04e/Moto; S20/M31 зберегли свої існуючі app/test packages.
 - Source revision: каталог `D:\Transfer` не є Git repository; немає commit/tag і чистого-tree доказу, до якого прив’язати candidate.
 
 ## Відомі обмеження — release blockers
 
-- Повний сценарій Station UI → передача реальних вибраних даних → destination restore → повторне читання/post-verification → завершений report не пройшов acceptance. Synthetic receive receipt підтверджує прийом і цілісність staging лише.
+- 2026-11-13 через headless Qt harness фактичного `StationWindow`/worker та фізичні телефони пройдено device selection/plan/receive → receipt → явне Android restore approval → MediaStore post-verification на synthetic item: Samsung S20 Ultra/API 33 → Samsung M31/API 31, 65 536 bytes; receipt verified=1/1, Android restore 1/1 без помилок, незалежне читання точного destination item підтвердило SHA-256 `7daca209…b27e4c2`. Station досі не отримує Android restore outcome і не створює фінальний report; саме report exchange лишається release blocker. Це тест synthetic data, не особистих файлів. Видиму інтерактивну desktop UI, зокрема її візуальне приймання людиною, окремо не перевірено.
 - Wi-Fi TLS sockets, certificate pinning і QR pairing не завершені. USB/ADB прототип працює через Windows ADB host; прямий phone-to-phone USB не підтримується як файловий transport.
 - Recovery state machine та cross-transport resume не реалізовані наскрізно. Контракти/вимоги є, acceptance обриву кабелю чи Wi-Fi не проводився.
 - Space Preflight, streaming restore і drop-largest ще не реалізовані наскрізно.
 - Restore поза MediaStore фото/відео/аудіо/Downloads на API 29+ не завершений; API 26–28 і API-category destination adapters потребують роботи. M1 acceptance — 100 фото + 50 контактів із 100% SHA-256 збігом — відкритий.
-- API 29 та API 34 physical instrumentation, Samsung→Redmi і Pixel→Motorola acceptance ще потрібні; зараз ADB device listing недоступний.
+- API 29 та API 34 physical instrumentation, Samsung→Redmi і Pixel→Motorola acceptance ще потрібні. На 2026-11-13 S20 Ultra та M31 доступні через USB/Wi-Fi ADB; інші телефони в цьому тесті не використовувалися.
 - SMS/Call Log доступ залишається залежним від платформних hard-restricted grants та розповсюдження/policy. Перевірити відповідність Google Play перед розповсюдженням.
-- Production signing/versioning, Windows code signing, dependency lock, provenance та release checksum package відсутні. Не поширювати debug APK/exe як готовий споживчий продукт.
+- Production signing/versioning, Windows code signing, provenance та release checksum package відсутні. Репозиторій зараз private і ліцензію не обрано; перед переведенням у public треба отримати вибір власника. Не поширювати debug APK/exe як готовий споживчий продукт.
 
 ## Gate перед будь-яким публічним релізом
 
 - [ ] Створити Git commit/tag для конкретного кандидата; робоче дерево має бути чистим.
-- [ ] Зафіксувати/перевірити dependency lock для Python та Android і версії SDK/JDK.
+- [ ] Чисто встановити Python та Android залежності з обох lock-файлів; зафіксувати версії SDK/JDK і SHA-256 candidate artifacts.
 - [ ] Прогнати Python 125+ suite та Gradle unit/build з чистої перевіреної revision; зберегти логи й artifact SHA-256.
+- [ ] Переконатися в успішному GitHub Actions run для revision-кандидата; увімкнути branch protection після першого проходження.
+- [ ] Вибрати й додати ліцензію лише після рішення власника перед будь-якою публічною публікацією.
 - [ ] Перевірити Windows onedir запуск поза source tree, включно з доступністю всіх `shared/*.schema.json`.
 - [ ] Налаштувати production signing окремо від debug key; звірити app identity/version, Android target API та distribution policy.
 - [ ] Пройти Station desktop UI та повний data restore + destination post-verification/report без використання особистих контрольних файлів.

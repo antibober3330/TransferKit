@@ -5,8 +5,13 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
+import java.time.ZoneOffset
 import java.security.MessageDigest
+import java.time.temporal.ChronoUnit
 import java.time.Instant
+import java.time.format.DateTimeFormatterBuilder
+import java.time.temporal.ChronoField
+import java.util.Locale
 import java.util.UUID
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -15,9 +20,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.longOrNull
 import com.transferkit.client.protocol.MAX_MANIFEST_BYTES
+import com.transferkit.client.receiver.IncomingManifestValidator
 
 /** A lazy source item supplied by a selected Android category provider. */
 class ManifestItemSource internal constructor(
@@ -25,6 +29,8 @@ class ManifestItemSource internal constructor(
     /** Null means the provider cannot report a trustworthy size before reading the bytes. */
     val declaredSizeBytes: Long?,
     val metadata: Map<String, Any?>,
+    /** Use a verified second pass instead of a disk snapshot for stable, replayable providers. */
+    val replayableWithoutSnapshot: Boolean = false,
     private val writePayload: (OutputStream) -> Unit,
 ) {
     internal fun writeTo(output: OutputStream) = writePayload(output)
@@ -104,7 +110,7 @@ class ManifestBuilder internal constructor(private val cacheDirectory: File) {
         }
         validateCategorySelection(frozenSelection)
         val transferId = UUID.randomUUID().toString()
-        val createdAt = Instant.now().toString()
+        val createdAt = formatCanonicalUtcTimestamp(Instant.now())
         val snapshotDirectory = File(
             File(cacheDirectory, SNAPSHOT_DIRECTORY),
             transferId,
@@ -138,10 +144,10 @@ class ManifestBuilder internal constructor(private val cacheDirectory: File) {
             }
 
             val document = buildManifestDocument(transferId, createdAt, sourceDevice, preparedCategories)
-            validateManifestContract(document)
             val canonicalBytes = CANONICAL_JSON.encodeToString(JsonObject.serializer(), document)
                 .toByteArray(Charsets.UTF_8)
             require(canonicalBytes.size <= MAX_MANIFEST_BYTES) { "Manifest exceeds the 64 MiB limit" }
+            IncomingManifestValidator.parse(canonicalBytes)
             return TransferManifestBundle(
                 transferId,
                 createdAt,
@@ -158,7 +164,9 @@ class ManifestBuilder internal constructor(private val cacheDirectory: File) {
     }
 
     private fun prepareItem(source: ManifestItemSource, snapshotDirectory: File): PreparedManifestItem {
-        require(source.id.isNotBlank() && source.id.length <= MAX_ITEM_ID_LENGTH) { "Invalid manifest item ID" }
+        require(source.id.isNotBlank() && source.id.codePointCount(0, source.id.length) <= MAX_ITEM_ID_LENGTH) {
+            "Invalid manifest item ID"
+        }
         source.declaredSizeBytes?.let { require(it >= 0) { "Negative provider size is invalid" } }
 
         val metadata = metadataAsJson(source.metadata)
@@ -167,6 +175,19 @@ class ManifestBuilder internal constructor(private val cacheDirectory: File) {
 
         val expectedSize = source.declaredSizeBytes
         if (expectedSize == null) {
+            if (source.replayableWithoutSnapshot) {
+                val digesting = CountingDigestOutputStream(DiscardOutputStream)
+                source.writeTo(digesting)
+                val observed = digesting.finish()
+                validateItemSize(observed.sizeBytes)
+                return PreparedManifestItem(
+                    source.id,
+                    observed.sizeBytes,
+                    observed.sha256,
+                    metadata,
+                    source::writeTo,
+                )
+            }
             snapshotDirectory.mkdirs()
             val snapshot = File(snapshotDirectory, "${sha256Hex(source.id.toByteArray(Charsets.UTF_8))}.snapshot")
             val observed = FileOutputStream(snapshot).use { fileOutput ->
@@ -229,8 +250,9 @@ class ManifestBuilder internal constructor(private val cacheDirectory: File) {
 object ManifestItemSources {
     fun media(provider: MediaProvider, item: MediaItem) = ManifestItemSource(
         id = item.id,
-        declaredSizeBytes = item.sizeBytes,
+        declaredSizeBytes = item.sizeBytes.takeUnless { item.providerSizeMayDiffer },
         metadata = item.manifestMetadata(),
+        replayableWithoutSnapshot = item.providerSizeMayDiffer,
     ) { output -> provider.openStream(item).use { it.copyTo(output) } }
 
     fun contact(provider: ContactsProvider, item: ContactVCardItem) = ManifestItemSource(
@@ -314,62 +336,27 @@ private fun buildManifestDocument(
     )
 }
 
-/** Contract assertions mirror manifest.schema.json; the receiving Station still runs JSON Schema. */
-private fun validateManifestContract(document: JsonObject) {
-    require(document.keys == setOf("version", "transfer_id", "created_at", "source_device", "categories"))
-    require(document["version"] == JsonPrimitive("1.0"))
-    val transferId = (document["transfer_id"] as? JsonPrimitive)?.content
-        ?: throw IllegalArgumentException("Manifest transfer_id is required")
-    require(runCatching { UUID.fromString(transferId).toString() == transferId }.getOrDefault(false))
-    val createdAt = (document["created_at"] as? JsonPrimitive)?.content
-        ?: throw IllegalArgumentException("Manifest created_at is required")
-    require(createdAt.endsWith("Z")) { "Manifest timestamps must use UTC Z suffix" }
-
-    val device = document["source_device"] as? JsonObject
-        ?: throw IllegalArgumentException("Manifest source_device is required")
-    require(device.keys == setOf("manufacturer", "model", "sdk", "fingerprint"))
-    require((device["manufacturer"] as? JsonPrimitive)?.content?.let { it.isNotBlank() && it.length <= 128 } == true)
-    require((device["model"] as? JsonPrimitive)?.content?.let { it.isNotBlank() && it.length <= 128 } == true)
-    require((device["fingerprint"] as? JsonPrimitive)?.content?.let { it.isNotBlank() && it.length <= 512 } == true)
-    val sdkPrimitive = device["sdk"] as? JsonPrimitive
-        ?: throw IllegalArgumentException("Manifest device SDK is required")
-    require(!sdkPrimitive.isString)
-    val sdk = sdkPrimitive.intOrNull
-        ?: throw IllegalArgumentException("Manifest device SDK is required")
-    require(sdk >= 26)
-
-    val categories = document["categories"] as? JsonObject
-        ?: throw IllegalArgumentException("Manifest categories are required")
-    require(categories.isNotEmpty())
-    categories.forEach { (categoryId, rawCategory) ->
-        require(categoryId in VALID_CATEGORY_IDS)
-        val category = rawCategory as? JsonObject ?: throw IllegalArgumentException("Invalid category entry")
-        require(category.keys == setOf("provider", "method", "items"))
-        require((category["provider"] as? JsonPrimitive)?.content?.isNotBlank() == true)
-        require((category["method"] as? JsonPrimitive)?.content?.isNotBlank() == true)
-        val items = category["items"] as? JsonArray ?: throw IllegalArgumentException("Category items are required")
-        val seenItemIds = HashSet<String>()
-        items.forEach { rawItem ->
-            val item = rawItem as? JsonObject ?: throw IllegalArgumentException("Invalid manifest item")
-            require(item.keys == setOf("id", "size", "sha256", "metadata"))
-            val id = (item["id"] as? JsonPrimitive)?.content
-                ?: throw IllegalArgumentException("Manifest item id is required")
-            require(id.isNotBlank() && id.length <= MAX_ITEM_ID_LENGTH && seenItemIds.add(id))
-            val sizePrimitive = item["size"] as? JsonPrimitive
-                ?: throw IllegalArgumentException("Manifest item size is required")
-            require(!sizePrimitive.isString)
-            val size = sizePrimitive.longOrNull
-                ?: throw IllegalArgumentException("Manifest item size is required")
-            require(size in 0..MAX_SAFE_INTEGER)
-            val sha256 = (item["sha256"] as? JsonPrimitive)?.content
-                ?: throw IllegalArgumentException("Manifest item sha256 is required")
-            require(SHA256_PATTERN.matches(sha256))
-            val metadata = item["metadata"] as? JsonObject
-                ?: throw IllegalArgumentException("Manifest item metadata must be an object")
-            require(canonicalElementBytes(metadata).size <= MAX_METADATA_BYTES)
-        }
+internal fun formatCanonicalUtcTimestamp(value: Instant): String {
+    val normalized = value.truncatedTo(ChronoUnit.MICROS)
+    return if (normalized.nano == 0) {
+        CANONICAL_UTC_SECONDS.format(normalized)
+    } else {
+        CANONICAL_UTC_MICROS.format(normalized)
     }
 }
+
+private val CANONICAL_UTC_SECONDS = DateTimeFormatterBuilder()
+    .appendPattern("uuuu-MM-dd'T'HH:mm:ss")
+    .appendLiteral('Z')
+    .toFormatter(Locale.ROOT)
+    .withZone(ZoneOffset.UTC)
+
+private val CANONICAL_UTC_MICROS = DateTimeFormatterBuilder()
+    .appendPattern("uuuu-MM-dd'T'HH:mm:ss")
+    .appendFraction(ChronoField.NANO_OF_SECOND, 6, 6, true)
+    .appendLiteral('Z')
+    .toFormatter(Locale.ROOT)
+    .withZone(ZoneOffset.UTC)
 
 private fun metadataAsJson(metadata: Map<String, Any?>): JsonObject =
     JsonObject(metadata.toSortedMap(CODE_POINT_ORDER).mapValues { (_, value) -> value.toJsonElement() })
