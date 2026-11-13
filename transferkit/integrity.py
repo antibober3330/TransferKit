@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import math
 import struct
 import zlib
 from dataclasses import dataclass
@@ -189,7 +188,7 @@ def iter_file_chunks(
         raise ValueError("expected_size must not be negative")
     if chunk_size < 1 or chunk_size > MAX_CHUNK_SIZE:
         raise ValueError("chunk_size must be between 1 byte and 8 MiB")
-    total_chunks = max(1, math.ceil(expected_size / chunk_size))
+    total_chunks = max(1, (expected_size + chunk_size - 1) // chunk_size)
     if start_chunk < 0 or start_chunk > total_chunks:
         raise ValueError("start_chunk must be within the item's chunk range")
     remaining = expected_size

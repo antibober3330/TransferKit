@@ -211,6 +211,7 @@ class TransferHistory:
             self._ensure_column(connection, "active_transfers", "source_identity_fingerprint", "TEXT")
             self._ensure_column(connection, "active_transfers", "target_identity_fingerprint", "TEXT")
             self._ensure_column(connection, "active_transfers", "category_summary_json", "TEXT")
+            # These misspelled names existed in early development databases.
             self._rename_column(connection, "item_checkpoints", "chunk_sie", "chunk_size")
             self._rename_column(connection, "chunk_checkpoints", "payload_sie", "payload_size")
             connection.execute("PRAGMA user_version = 4")
@@ -261,7 +262,7 @@ class TransferHistory:
         if not protocol_version:
             raise ValueError("protocol_version must not be empty")
         has_category_summary = category_totals is not None
-        normalied_totals: dict[str, tuple[int, int]] = {}
+        normalized_totals: dict[str, tuple[int, int]] = {}
         for category_id, totals in (category_totals or {}).items():
             category = CategoryId(category_id).value
             if len(totals) != 2:
@@ -276,9 +277,9 @@ class TransferHistory:
                 or total_bytes < 0
             ):
                 raise ValueError("category item and byte totals must be non-negative integers")
-            if category in normalied_totals:
+            if category in normalized_totals:
                 raise ValueError("category totals must use unique category IDs")
-            normalied_totals[category] = (item_count, total_bytes)
+            normalized_totals[category] = (item_count, total_bytes)
         now = self._now()
         identity = (
             manifest_sha256,
@@ -289,7 +290,7 @@ class TransferHistory:
         summary_json = (
             json.dumps(
                 {category: {"items_total": count, "total_bytes": total_bytes}
-                 for category, (count, total_bytes) in sorted(normalied_totals.items())},
+                 for category, (count, total_bytes) in sorted(normalized_totals.items())},
                 separators=(",", ":"),
                 sort_keys=True,
             )
@@ -320,7 +321,7 @@ class TransferHistory:
                         (summary_json, canonical_id),
                     )
                 if has_category_summary:
-                    self._seed_category_progress(connection, canonical_id, normalied_totals, now)
+                    self._seed_category_progress(connection, canonical_id, normalized_totals, now)
                 return
             connection.execute(
                 "INSERT INTO active_transfers "
@@ -330,7 +331,7 @@ class TransferHistory:
                 (canonical_id, *identity[:3], summary_json, identity[3], now, now),
             )
             if has_category_summary:
-                self._seed_category_progress(connection, canonical_id, normalied_totals, now)
+                self._seed_category_progress(connection, canonical_id, normalized_totals, now)
 
     @staticmethod
     def _seed_category_progress(

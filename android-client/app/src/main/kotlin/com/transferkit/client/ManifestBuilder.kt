@@ -21,6 +21,8 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import com.transferkit.client.protocol.MAX_MANIFEST_BYTES
+import com.transferkit.client.protocol.JSON_CODE_POINT_ORDER
+import com.transferkit.client.protocol.validateManifestItemCount
 import com.transferkit.client.receiver.IncomingManifestValidator
 
 /** A lazy source item supplied by a selected Android category provider. */
@@ -105,6 +107,11 @@ class ManifestBuilder internal constructor(private val cacheDirectory: File) {
         sourceDevice: DeviceInfo,
         selectedCategories: List<ManifestCategorySource>,
     ): TransferManifestBundle {
+        var selectedItemCount = 0L
+        selectedCategories.forEach { category ->
+            selectedItemCount += category.items.size.toLong()
+            validateManifestItemCount(selectedItemCount)
+        }
         val frozenSelection = selectedCategories.map { category ->
             category.copy(items = category.items.toList())
         }
@@ -299,7 +306,7 @@ private fun buildManifestDocument(
     categories: List<PreparedManifestCategory>,
 ): JsonObject {
     val deviceObject = JsonObject(
-        sortedMapOf(CODE_POINT_ORDER,
+        sortedMapOf(JSON_CODE_POINT_ORDER,
             "fingerprint" to JsonPrimitive(device.fingerprint),
             "manufacturer" to JsonPrimitive(device.manufacturer),
             "model" to JsonPrimitive(device.model),
@@ -309,7 +316,7 @@ private fun buildManifestDocument(
     val categoryObjects = categories.associate { category ->
         val items = category.items.map { item ->
             JsonObject(
-                sortedMapOf(CODE_POINT_ORDER,
+                sortedMapOf(JSON_CODE_POINT_ORDER,
                     "id" to JsonPrimitive(item.id),
                     "metadata" to item.metadata,
                     "sha256" to JsonPrimitive(item.sha256),
@@ -318,7 +325,7 @@ private fun buildManifestDocument(
             )
         }
         category.categoryId to JsonObject(
-            sortedMapOf(CODE_POINT_ORDER,
+            sortedMapOf(JSON_CODE_POINT_ORDER,
                 "items" to JsonArray(items),
                 "method" to JsonPrimitive(category.method),
                 "provider" to JsonPrimitive(category.provider),
@@ -326,8 +333,8 @@ private fun buildManifestDocument(
         )
     }
     return JsonObject(
-        sortedMapOf(CODE_POINT_ORDER,
-            "categories" to JsonObject(categoryObjects.toSortedMap(CODE_POINT_ORDER)),
+        sortedMapOf(JSON_CODE_POINT_ORDER,
+            "categories" to JsonObject(categoryObjects.toSortedMap(JSON_CODE_POINT_ORDER)),
             "created_at" to JsonPrimitive(createdAt),
             "source_device" to deviceObject,
             "transfer_id" to JsonPrimitive(transferId),
@@ -359,11 +366,13 @@ private val CANONICAL_UTC_MICROS = DateTimeFormatterBuilder()
     .withZone(ZoneOffset.UTC)
 
 private fun metadataAsJson(metadata: Map<String, Any?>): JsonObject =
-    JsonObject(metadata.toSortedMap(CODE_POINT_ORDER).mapValues { (_, value) -> value.toJsonElement() })
+    JsonObject(metadata.toSortedMap(JSON_CODE_POINT_ORDER).mapValues { (_, value) -> value.toJsonElement(1) })
 
-private fun Any?.toJsonElement(): JsonElement = when (this) {
+private fun Any?.toJsonElement(depth: Int): JsonElement {
+    require(depth <= MAX_METADATA_DEPTH) { "Item metadata exceeds the maximum nesting depth" }
+    return when (this) {
     null -> JsonNull
-    is JsonElement -> canonicalize(this)
+    is JsonElement -> canonicalize(this, depth)
     is String -> JsonPrimitive(this)
     is Boolean -> JsonPrimitive(this)
     is Byte, is Short, is Int, is Long -> JsonPrimitive((this as Number).toLong())
@@ -376,22 +385,26 @@ private fun Any?.toJsonElement(): JsonElement = when (this) {
     is Map<*, *> -> {
         val fields = this.entries.associate { (key, value) ->
             require(key is String) { "Metadata object keys must be strings" }
-            key to value.toJsonElement()
+            key to value.toJsonElement(depth + 1)
         }
-        JsonObject(fields.toSortedMap(CODE_POINT_ORDER))
+        JsonObject(fields.toSortedMap(JSON_CODE_POINT_ORDER))
     }
-    is Iterable<*> -> JsonArray(map { it.toJsonElement() })
-    is Array<*> -> JsonArray(map { it.toJsonElement() })
+    is Iterable<*> -> JsonArray(map { it.toJsonElement(depth + 1) })
+    is Array<*> -> JsonArray(map { it.toJsonElement(depth + 1) })
     else -> throw IllegalArgumentException("Unsupported manifest metadata value: ${this::class.java.name}")
+    }
 }
 
 private fun canonicalElementBytes(element: JsonElement): ByteArray =
     CANONICAL_JSON.encodeToString(JsonElement.serializer(), element).toByteArray(Charsets.UTF_8)
 
-private fun canonicalize(element: JsonElement): JsonElement = when (element) {
-    is JsonObject -> JsonObject(element.toSortedMap(CODE_POINT_ORDER).mapValues { (_, value) -> canonicalize(value) })
-    is JsonArray -> JsonArray(element.map(::canonicalize))
+private fun canonicalize(element: JsonElement, depth: Int = 0): JsonElement {
+    require(depth <= MAX_METADATA_DEPTH) { "Item metadata exceeds the maximum nesting depth" }
+    return when (element) {
+    is JsonObject -> JsonObject(element.toSortedMap(JSON_CODE_POINT_ORDER).mapValues { (_, value) -> canonicalize(value, depth + 1) })
+    is JsonArray -> JsonArray(element.map { canonicalize(it, depth + 1) })
     else -> element
+    }
 }
 
 private data class DigestResult(val sizeBytes: Long, val sha256: String)
@@ -438,18 +451,6 @@ private fun ByteArray.toHex(): String = joinToString("") { byte -> "%02x".format
 
 private val CANONICAL_JSON = Json { encodeDefaults = true; prettyPrint = false }
 private val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")
-private val CODE_POINT_ORDER = Comparator<String> { first, second ->
-    var firstIndex = 0
-    var secondIndex = 0
-    while (firstIndex < first.length && secondIndex < second.length) {
-        val firstPoint = first.codePointAt(firstIndex)
-        val secondPoint = second.codePointAt(secondIndex)
-        if (firstPoint != secondPoint) return@Comparator firstPoint.compareTo(secondPoint)
-        firstIndex += Character.charCount(firstPoint)
-        secondIndex += Character.charCount(secondPoint)
-    }
-    (first.length - firstIndex).compareTo(second.length - secondIndex)
-}
 private val VALID_CATEGORY_IDS = setOf(
     "photos", "videos", "audio", "documents", "downloads", "contacts", "calendar", "sms",
     "call_log", "apks", "settings", "app_data", "wifi_passwords", "launcher_layout", "accounts",
@@ -457,5 +458,6 @@ private val VALID_CATEGORY_IDS = setOf(
 )
 private const val SNAPSHOT_DIRECTORY = "transferkit-manifest-snapshots"
 private const val MAX_METADATA_BYTES = 64 * 1024
+private const val MAX_METADATA_DEPTH = 32
 private const val MAX_ITEM_ID_LENGTH = 512
 private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L

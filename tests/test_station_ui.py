@@ -136,17 +136,17 @@ class StationUiTests(unittest.TestCase):
         self.assertEqual(AdbStateWatcher.state_for_serial(devices, "SOURCE"), "offline")
         self.assertEqual(AdbStateWatcher.state_for_serial(devices, "TARGET"), "absent")
 
-    def test_settings_save_local_adb_mode_and_confirmation_preferences(self) -> None:
+    def test_settings_save_local_adb_and_confirmation_preferences_without_claiming_inactive_modes(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
             settings = QSettings(str(Path(folder) / "settings.ini"), QSettings.Format.IniFormat)
             view = SettingsView(settings)
             view.adb_path.setText(r"C:\Android\platform-tools\adb.exe")
-            view.mode.setCurrentIndex(view.mode.findData("professional"))
             view.confirm_before_transfer.setChecked(False)
             view.save()
             self.assertEqual(settings.value("adb/executable"), r"C:\Android\platform-tools\adb.exe")
-            self.assertEqual(settings.value("transfer/default_mode"), "professional")
+            self.assertIsNone(settings.value("transfer/default_mode"))
             self.assertFalse(settings.value("transfer/confirm_before_start", type=bool))
+            self.assertIn("ще не під’єднані", view.mode_status.text())
             self.assertIn("збережено", view.status.text())
             view.close()
 

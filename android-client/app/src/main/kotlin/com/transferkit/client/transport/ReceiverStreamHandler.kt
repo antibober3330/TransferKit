@@ -46,8 +46,11 @@ class ReceiverStreamHandler(
                     val decoded = runCatching { ProtocolCodec.decodeChunk(frame.encodedFrame) }.getOrNull()
                     val acknowledgement: Acknowledgement = when {
                         !manifestAccepted -> rejectedChunk(decoded, ACK_TRANSFER_MISMATCH)
-                        authenticatedTransferId != null && decoded?.header?.transferId != authenticatedTransferId ->
+                        decoded != null && authenticatedTransferId != null &&
+                            decoded.header.transferId != authenticatedTransferId ->
                             rejectedChunk(decoded, ACK_TRANSFER_MISMATCH)
+                        // Let the receiver classify malformed frames after an accepted manifest so
+                        // CRC corruption is reported as CRC32_MISMATCH rather than transfer mismatch.
                         else -> receiver.acceptChunk(frame.encodedFrame)
                     }
                     output.write(ProtocolCodec.encodeAcknowledgement(acknowledgement))

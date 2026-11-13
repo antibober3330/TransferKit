@@ -161,13 +161,14 @@ class TransferWorker(QThread):
             adb = AdbClient(executable=self.adb_executable, command_timeout=10.0)
             monitor = TransferMonitor()
             monitor.start()
-            total_initialized = False
+
+            def on_manifest_accepted(manifest) -> None:
+                total = sum(item.size for category in manifest.categories.values() for item in category.items)
+                self.progress.emit(monitor.set_total_bytes(total))
 
             def on_progress(_category, _item, confirmed: int, total: int) -> None:
-                nonlocal total_initialized
-                if not total_initialized:
+                if monitor.snapshot().total_bytes is None:
                     monitor.set_total_bytes(total)
-                    total_initialized = True
                 self.progress.emit(monitor.acknowledge(confirmed))
 
             result = run_authenticated_usb_adb_transfer(
@@ -176,6 +177,7 @@ class TransferWorker(QThread):
                 self.source_serial,
                 self.target_serial,
                 on_progress=on_progress,
+                on_manifest_accepted=on_manifest_accepted,
             )
             monitor.finish()
             self.completed.emit(result)
@@ -402,20 +404,21 @@ class StationWindow(QMainWindow):
         if serials is None or serials != self._planned_serials or self._transfer_worker is not None:
             return
         source_serial, target_serial = serials
-        answer = QMessageBox.question(
-            self,
-            "Почати прийом підготовлених даних?",
-            "На джерелі має бути підготовлений маніфест і запущений USB/ADB source listener; "
-            "на цілі — запущений USB/ADB receiver.\n\n"
-            f"Джерело: {self.source_combo.currentText()}\nЦіль: {self.target_combo.currentText()}\n\n"
-            "Station передасть лише вибрані на джерелі дані в приватне сховище TransferKit на цілі. "
-            "Автоматичне відновлення у сховище Android не запускається; після прийому буде збережена квитанція, "
-            "а не звіт про restore.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
+        if self.settings.value("transfer/confirm_before_start", True, type=bool):
+            answer = QMessageBox.question(
+                self,
+                "Почати прийом підготовлених даних?",
+                "На джерелі має бути підготовлений маніфест і запущений USB/ADB source listener; "
+                "на цілі — запущений USB/ADB receiver.\n\n"
+                f"Джерело: {self.source_combo.currentText()}\nЦіль: {self.target_combo.currentText()}\n\n"
+                "Station передасть лише вибрані на джерелі дані в приватне сховище TransferKit на цілі. "
+                "Автоматичне відновлення у сховище Android не запускається; після прийому буде збережена квитанція, "
+                "а не звіт про restore.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
 
         self._set_transfer_controls_enabled(False)
         self.progress_view.set_categories([])
@@ -520,6 +523,15 @@ class StationWindow(QMainWindow):
             watcher.wait(3500)
 
     def closeEvent(self, event) -> None:
+        workers = (self._refresh_worker, self._plan_worker, self._transfer_worker)
+        if any(worker is not None and worker.isRunning() for worker in workers):
+            event.ignore()
+            QMessageBox.information(
+                self,
+                "Операція ще триває",
+                "Зачекайте завершення перевірки або передачі, перш ніж закривати Station.",
+            )
+            return
         self._stop_adb_state_watcher()
         super().closeEvent(event)
 

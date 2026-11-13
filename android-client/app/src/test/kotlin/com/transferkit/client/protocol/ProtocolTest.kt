@@ -78,6 +78,26 @@ class ProtocolTest {
     }
 
     @Test
+    fun recoveryCanonicalJsonUsesUnicodeCodePointOrdering() {
+        val pythonCanonicalPayload = "{\"\uE000\":1,\"😀\":2}".toByteArray(Charsets.UTF_8)
+        val frame = RecoveryFrameCodec.encode(RecoveryFrameKind.HELLO, pythonCanonicalPayload)
+        assertArrayEquals(pythonCanonicalPayload, RecoveryFrameCodec.decode(frame).payload)
+
+        val utf16CodeUnitOrder = "{\"😀\":2,\"\uE000\":1}".toByteArray(Charsets.UTF_8)
+        assertThrows(ProtocolException::class.java) {
+            RecoveryFrameCodec.encode(RecoveryFrameKind.HELLO, utf16CodeUnitOrder)
+        }
+    }
+
+    @Test
+    fun rejectsManifestItemCountAboveSharedLimit() {
+        validateManifestItemCount(MAX_MANIFEST_ITEMS)
+        assertThrows(IllegalArgumentException::class.java) {
+            validateManifestItemCount(MAX_MANIFEST_ITEMS + 1)
+        }
+    }
+
+    @Test
     fun sourceIdentityMatchesPythonVector() {
         val vector = vectors.getValue("source_identity").jsonObject
         val transferId = UUID.fromString(vector.getValue("transfer_id").jsonPrimitive.content)

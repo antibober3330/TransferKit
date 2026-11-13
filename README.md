@@ -1,16 +1,16 @@
 # TransferKit
 
-**Поточний development snapshot:** `0.1.0-alpha.3` ([`VERSION`](VERSION)); правила випуску й changelog: [`VERSIONING.md`](VERSIONING.md), [`CHANGELOG.md`](CHANGELOG.md).
+**Поточний development snapshot:** `0.1.0-alpha.4` ([`VERSION`](VERSION)); правила випуску й changelog: [`VERSIONING.md`](VERSIONING.md), [`CHANGELOG.md`](CHANGELOG.md).
 
 TransferKit — проєкт локального перенесення даних між Android-пристроями через Windows Station або майбутній автономний Android flow. Станом на 12 листопада 2026 року це **робочий прототип і набір перевірених компонентів**, а не готовий наскрізний засіб міграції.
 
 ## Що вже є
 
 - Windows Station на Python/PySide6: виявлення ADB-пристроїв, read-only capability probe, план категорій, manifest/SHA-256, chunk framing, історія, звіти та зашифрований Backup Relay API.
-- Android Client: device info, source providers і ManifestBuilder, authenticated source/receiver LocalSocket servers, durable receiver checkpoints, consent gates і MediaStore restore для Android 10+.
+- Android Client: device info, source providers і ManifestBuilder, authenticated source/receiver LocalSocket servers, durable receiver checkpoints, consent gates і media restore для Android 8+ (legacy public folders на API 26–28, MediaStore на API 29+).
 - Спільні JSON Schemas і wire contracts у [`shared/`](shared/), детальні вимоги — у [`PROJECT_SPEC.md`](PROJECT_SPEC.md), послідовність робіт — у [`WORK_CHECKLIST.md`](WORK_CHECKLIST.md).
 
-**Це ще не готовий міграційний продукт.** Автентифікований USB/ADB source→target receive flow уже є: Windows Station запускає Python session backend, який передає manifest/chunks між Android listener-ами, зберігає підтверджені ACK/checkpoints і receipt. На Samsung A04e → Motorola moto g06 фізично пройшов тест лише з одним згенерованим payload на 65 536 байтів і звіркою SHA-256. Це підтверджує прийом та integrity, але не повний desktop click-through, restore користувацьких даних, destination post-verification чи фінальний report. Android restore реалізований для фото/відео/аудіо/Downloads через MediaStore на API 29+; інші destination adapters неповні. Wi-Fi TLS sockets і QR pairing ще не завершені; пряме телефон↔телефон USB не є підтриманим transport-профілем.
+**Це ще не готовий міграційний продукт.** Автентифікований USB/ADB source→target receive flow уже є: Windows Station запускає Python session backend, який передає manifest/chunks між Android listener-ами, зберігає підтверджені ACK/checkpoints і receipt. На Samsung A04e → Motorola moto g06 фізично пройшов тест лише з одним згенерованим payload на 65 536 байтів і звіркою SHA-256. Це підтверджує прийом та integrity, але не повний desktop click-through, restore користувацьких даних, destination post-verification чи фінальний report. Android media restore для фото/відео/аудіо/Downloads має legacy public-directory шлях на API 26–28 і MediaStore на API 29+. Contacts та Calendar мають окремі restore adapters із permission/destination flow і readback, але їхня OEM acceptance обмежена. SAF destination для довільних documents, SMS/Call Log restore, Settings write-back і повний APK install UI ще не завершені. Wi-Fi TLS sockets і QR pairing ще не завершені; пряме телефон↔телефон USB не є підтриманим transport-профілем.
 
 ## Швидкий запуск Windows Station
 

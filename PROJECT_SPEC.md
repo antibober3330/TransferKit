@@ -28,7 +28,7 @@
 
 ### 2.2 Режим «Повний»
 
-Максимально можливе перенесення: усі Tier A–F, Shiuku, Device Owner (якщо доступно). Показ capability-матриці з причиною недоступності кожної категорії.
+Максимально можливе перенесення: усі Tier A–F, Shizuku, Device Owner (якщо доступно). Показ capability-матриці з причиною недоступності кожної категорії.
 
 ### 2.3 Режим «Професійний»
 
@@ -71,7 +71,7 @@ Windows Station показує фактично підтверджений пр�
 * **Категорії:** Tier A–G (див. §6). Реальний статус визначається runtime-probe.
 * **Windows-станція:** Python + PySide6.
 * **Android-клієнт:** Kotlin, окремий APK на кожному пристрої.
-* **Shiuku:** опційний доступ до окремих Android API без постійного ПК на Android 11+; це не ADB-клієнт для підключення до другого телефона й не обов’язкова умова базового перенесення.
+* **Shizuku:** опційний доступ до окремих Android API без постійного ПК на Android 11+; це не ADB-клієнт для підключення до другого телефона й не обов’язкова умова базового перенесення.
 * **Device Owner:** як опційний режим через `dpm set-device-owner`.
 * **Звітність:** per-category `TransferReport` з SHA-256.
 
@@ -79,7 +79,7 @@ Windows Station показує фактично підтверджений пр�
 
 * iOS, HarmonyOS, KaiOS, Windows Phone.
 * Обхід Android sandbox, rootkit, exploit-и, Magisk-модулі.
-* Перенесення DRM-вмісту (Netflix, Spotify офлайн), банківських застосунків, 2FA-токенів, паролів Wi-Fi без Shiuku, ключів шифрування акаунтів.
+* Перенесення DRM-вмісту (Netflix, Spotify офлайн), банківських застосунків, 2FA-токенів, паролів Wi-Fi без Shizuku, ключів шифрування акаунтів.
 * Злам OEM-захистів або підпису.
 * Хмарний сервіс (усе локально, без серверів).
 * Рекламні трекери, телеметрія, будь-який «прихований збір даних».
@@ -88,13 +88,13 @@ Windows Station показує фактично підтверджений пр�
 
 Ці п’ять рішень мають бути зафіксовані до початку роботи над `capability_probe`, `planner`, `transport`:
 
-1. **Мінімальна версія Android** — 8.0 чи 10 чи 12? Впливає на Shiuku (11+), MediaStore scoped storage (10+), `READ_MEDIA_*` (13+).
+1. **Мінімальна версія Android** — 8.0 чи 10 чи 12? Впливає на Shizuku (11+), MediaStore scoped storage (10+), `READ_MEDIA_*` (13+).
 2. **Root у скоупі?** Якщо так — окремий «Професійний» профіль із явним попередженням.
-3. **Shiuku — обов’язковий чи опційний?** Якщо опційний — два UI-режими: «Базовий» і «Розширений».
+3. **Shizuku — обов’язковий чи опційний?** Якщо опційний — два UI-режими: «Базовий» і «Розширений».
 4. **Дистрибуція** — Play Store чи тільки сайдлоад. Впливає на `READ_SMS`, `READ_CALL_LOG`, `QUERY_ALL_PACKAGES`.
 5. **MVP vs повний продукт** — що входить у першу версію.
 
-До відповідей на ці питання діє наступне припущення (default): **minSdk=26 (Android 8.0), root відсутній, Shiuku опційний, тільки сайдлоад, MVP = Tier A+B+D+E**.
+До відповідей на ці питання діє наступне припущення (default): **minSdk=26 (Android 8.0), root відсутній, Shizuku опційний, тільки сайдлоад, MVP = Tier A+B+D+E**.
 
 ---
 
@@ -128,7 +128,7 @@ Windows Station показує фактично підтверджений пр�
 │ │ Category    │ │         │ │ Verify       │ │
 │ │ Providers   │ │         │ │ (SHA-256)    │ │
 │ ├─────────────┤ │         │ ├──────────────┤ │
-│ │ Shiuku     │ │         │ │ Shiuku      │ │
+│ │ Shizuku     │ │         │ │ Shizuku      │ │
 │ │ Bridge      │ │         │ │ Bridge       │ │
 │ └─────────────┘ │         │ └──────────────┘ │
 └─────────────────┘         └──────────────────┘
@@ -164,7 +164,7 @@ Windows Station показує фактично підтверджений пр�
 |`android-client/app/src/main/kotlin/com/transferkit/client/restore/Restorer.kt`|Per-category restore contract, registry та MediaStore adapter; інші adapters мають звітувати недоступність, доки не реалізовані.|
 |`android-client/app/src/main/kotlin/com/transferkit/client/restore/ApkInstallCoordinator.kt`|Підготовка одного user-confirmed APK у `PackageInstaller.Session`, stream hash до та після write, commit через caller-owned status `IntentSender`; результат не є `RESTORED` до OS success і package/version readback.|
 |`category/`|Провайдери: `MediaProvider`, `ContactsProvider`, `SmsProvider`, `CalendarProvider`, `ApkProvider`, `SettingsProvider`.|
-|`android-client/app/src/main/kotlin/com/transferkit/client/shiuku/ShiukuBridge.kt`|Read-only Shiuku availability/permission probe і попередження; не виконує shell чи elevated operations.|
+|`android-client/app/src/main/kotlin/com/transferkit/client/shizuku/ShizukuBridge.kt`|Read-only Shizuku availability/permission probe і попередження; не виконує shell чи elevated operations.|
 |`android-client/app/src/main/kotlin/com/transferkit/client/deviceowner/DoBridge.kt`|Read-only Device Owner state probe; не provision-ить пристрій і не змінює політики.|
 |`protocol/Protocol.kt`|Реалізація контракту §7.|
 |`ui/`|Compose-екрани: головний екран, inbox відновлення та `TransferProgressScreen`; progress screen відкривається з головного екрана й показує runtime snapshot USB/ADB receiver із durable checkpoint-ів. Pause/cancel та повноцінний sender-flow UI ще не підключені.|
@@ -207,7 +207,7 @@ Windows Station показує фактично підтверджений пр�
 * Якщо категорія `TRANSFERABLE` на обох — `TRANSFERABLE`.
 * Якщо на джерелі `TRANSFERABLE`, на цілі частково — `PARTIAL` з поясненням.
 * Якщо хоч одна сторона `UNAVAILABLE` — `UNAVAILABLE` з пріоритетом причини (`PERMISSION_DENIED` → `UNSUPPORTED` → `UNAVAILABLE`).
-* Якщо метод вимагає Shiuku, а він не активований — `PARTIAL` з підказкою активувати.
+* Якщо метод вимагає Shizuku, а він не активований — `PARTIAL` з підказкою активувати.
 
 **Показ користувачу:** матриця «що перенесеться / що ні / чому» **до** початку передачі.
 
@@ -367,14 +367,14 @@ Per-category restorer:
 
 * **MediaStore:** `ContentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)` з потоковим записом. Після запису — `MediaScannerConnection.scanFile` для індексації галереєю.
 * **Contacts:** batch `ContentProviderOperation` з `ContactsContract.RawContacts`.
-* **SMS:** `ContentResolver.insert(Telephony.Sms.CONTENT_URI, values)` — потребує дозволу `READ_SMS`/`WRITE_SMS` (привілейований, лише сайдлоад).
+* **SMS:** Restore у v1 не реалізований і не має готового дозволеного platform flow. Не викликати `ContentResolver.insert(Telephony.Sms.CONTENT_URI)` і не додавати `WRITE_SMS` без окремого рішення про hard-restricted permission, target handler, distribution policy та readback.
 * **Calendar:** `CalendarContract.Events`.
-* **APK:** `PackageInstaller` — потребує підтвердження користувача per-APK, або тихо при Device Owner.
-* **Settings:** `Settings.System.putString` (обмежено), `Settings.Secure.putString` (потребує WRITE_SECURE_SETTINGS або Shiuku/DO).
+* **APK:** `PackageInstaller` — у поточному user flow кожен пакет вимагає окремого підтвердження; тихе встановлення не є підтриманою TransferKit можливістю.
+* **Settings:** `Settings.System.putString` (обмежено), `Settings.Secure.putString` (потребує WRITE_SECURE_SETTINGS або Shizuku/Device Owner за конкретною дозволеною операцією).
 
 Кожен restorer повертає `{item_id, status, error_reason}`.
 
-**Статус реалізації:** Android має `CategoryRestorer` registry, `MediaStoreRestorer` для Android 10+ і `LegacyMediaRestorer` для Android 8–9, для фото, відео, аудіо й Downloads. Scoped шлях створює власне ім’я у `TransferKit` папці, тримає `IS_PENDING=1`, потоково звіряє SHA-256 при записі, перечитує destination і публікує item лише після збігу. Legacy шлях спершу вимагає `WRITE_EXTERNAL_STORAGE`, пише у відповідну public directory через UUID `.pending_` файл, виконує no-replace move, запускає MediaScanner і перечитує фінальний файл; deterministic marker дозволяє перевірити retry та не перезаписувати чужий файл. API 26–28 код поки не пройшов фізичну перевірку на старому Android. Receiver має inbox лише для завершених передач із фінальним receipt і лише items зі станом `VERIFIED`; manifest identity, розмір і SHA-256 звіряються перед підготовкою кандидата. Діалог показує точний сумарний розмір вибраних staging items і повідомляє, що після успішної post-перевірки ці власні копії будуть видалені; при невдалому restore bytes зберігаються для retry. Restore result записується у SQLite перед очищенням, щоб після process death повторити cleanup без дублювання user restore. Documents потребують SAF destination picker. Contacts, Calendar, SMS/Call Log, APK і Settings не мають завершених restore adapters; end-to-end приймання даних також чекає на authenticated receiver transport.
+**Статус реалізації:** Android має `CategoryRestorer` registry, `MediaStoreRestorer` для Android 10+ і `LegacyMediaRestorer` для Android 8–9, для фото, відео, аудіо й Downloads. Scoped шлях створює власне ім’я у `TransferKit` папці, тримає `IS_PENDING=1`, потоково звіряє SHA-256 при записі, перечитує destination і публікує item лише після збігу. Legacy шлях спершу вимагає `WRITE_EXTERNAL_STORAGE`, пише у відповідну public directory через UUID `.pending_` файл, виконує no-replace move, запускає MediaScanner і перечитує фінальний файл; deterministic marker дозволяє перевірити retry та не перезаписувати чужий файл. API 26–28 код поки не пройшов фізичну перевірку на старому Android. Receiver має inbox лише для завершених передач із фінальним receipt і лише items зі станом `VERIFIED`; manifest identity, розмір і SHA-256 звіряються перед підготовкою кандидата. Діалог показує точний сумарний розмір вибраних staging items і повідомляє, що після успішної post-перевірки ці власні копії будуть видалені; при невдалому restore bytes зберігаються для retry. Restore result записується у SQLite перед очищенням, щоб після process death повторити cleanup без дублювання user restore. Documents потребують SAF destination picker. `ContactsRestorer` і `CalendarRestorer` реалізовані з явними дозволами, явним календарем призначення, idempotent marker та provider readback; їхня ширша OEM/API acceptance ще відкрита. SMS/Call Log restore, Settings write-back та повний APK install UI не завершені. Authenticated USB/ADB receive transport уже реалізований; повний desktop click-through, restore, destination post-verification і report integration ще є acceptance роботою.
 
 Позитивний file restore означає: source bytes збіглися зі staging SHA-256, destination URI перечитано до публікації та ще раз після `IS_PENDING=0`; лише тоді item отримує `RESTORED`. `receipt.json` фіксує прийом і receiver verification та не переписується після restore; усі receipt counters/failures мають бути повторені у final report, а restore/post-verification failures додаються до report окремо. Python export API може перевірити цю узгодженість, коли йому передано receipt. Автоматизований API readback реалізований лише для MediaStore; решта категорій не можуть отримати `OK` без власного adapter і destination readback.
 
@@ -437,9 +437,9 @@ Per-category restorer:
 
 * **Звичайний API:** read-only allowlist публічних `Settings.System` ключів. Зміни `Settings.System` дозволені лише після окремого user approval через `ACTION_MANAGE_WRITE_SETTINGS` і `Settings.System.canWrite()`; наявність permission у manifest недостатня.
 * **Secure/Global:** не читати/записувати довільні keys. Частина значень недоступна звичайному APK або керується конкретними системними API/OEM policy. `WRITE_SECURE_SETTINGS` не додається у звичайний manifest.
-* **Shiuku:** окремий шлях під user-approved shell identity; доступ перевіряється на кожній конкретній операції. Наявність Shiuku чи його permission не гарантує, що конкретна настройка writable або переносна.
+* **Shizuku:** окремий шлях під user-approved shell identity; доступ перевіряється на кожній конкретній операції. Наявність Shizuku чи його permission не гарантує, що конкретна настройка writable або переносна.
 * **Device Owner:** окремий provisioned-device шлях; застосовувати лише документовані `DevicePolicyManager` методи для відповідної політики. Device Owner не є загальним дозволом на довільні `Settings.Secure/Global` keys.
-* **Поточний статус:** SettingsProvider v1 читає лише явний public `Settings.System` allowlist і фіксує окремо WRITE_SETTINGS approval, Shiuku connection/grant та Device Owner state. Він нічого не змінює; secure/global та elevated operations поки не реалізовані. Capability — `PARTIAL` з конкретним методом/evidence, не «повністю доступно».
+* **Поточний статус:** SettingsProvider v1 читає лише явний public `Settings.System` allowlist і фіксує окремо WRITE_SETTINGS approval, Shizuku connection/grant та Device Owner state. Він нічого не змінює; secure/global та elevated operations поки не реалізовані. Capability — `PARTIAL` з конкретним методом/evidence, не «повністю доступно».
 
 ### Tier F — Дані застосунків
 
@@ -449,7 +449,7 @@ Per-category restorer:
 * `Auto Backup` — хмарний, не керується стороннім APK.
 * `D2D Transfer API` — **немає публічного API** для сторонніх.
 * `Device Owner` — політики, не файловий доступ.
-* `Shiuku` — рівень shell (uid 2000), не `/data/data` не-debuggable.
+* `Shizuku` — рівень shell (uid 2000), не `/data/data` не-debuggable.
 * `Root` — повний доступ.
 * **Метод:** залежить від доступного рівня.
 * **Доступно:** ~85% без root, ~98% з root.
@@ -460,7 +460,7 @@ Per-category restorer:
 * DRM-вміст (Netflix, Spotify офлайн) — hardware-ключі, не переноситься.
 * Банківські застосунки — прив’язка до пристрою, часто неможливо навіть з root.
 * 2FA-токени (Google Authenticator, Authy) — потребують експортного механізму застосунку.
-* Пароли Wi-Fi без Shiuku — недоступно.
+* Пароли Wi-Fi без Shizuku — недоступно.
 * Розкладка іконок launcher без OEM-API.
 * Акаунти Google — сторонній APK не може переносити системні акаунти. Показувати `UNAVAILABLE` з причиною `OEM_RESTRICTION`; користувач повторно входить у систему або запускає офіційний OEM transfer. Smart Switch використовує OEM-підписані системні привілеї, які сторонньому APK недоступні.
 
@@ -653,7 +653,7 @@ class VendorAdapter:
 * Перед transfer — Space Preflight; strategy selection не знімає явного підтвердження restore.
 * Batch і streaming проходять однакові per-item SHA-256 та post-verification; для MediaStore item лишається непублічним до перевірки записаного destination.
 * Не видаляти файли користувача автоматично. Видалення власного TransferKit staging дозволене лише після явного підтвердження з показом точного розміру; активні resumable checkpoints не видаляти.
-* Окреме попередження перед активацією Shiuku.
+* Окреме попередження перед активацією Shizuku.
 * Окреме попередження перед root-режимом (профіль «Професійний»).
 * Видалення тимчасових файлів (чанки, кеш) після завершення.
 * TLS для Wi-Fi передачі.
@@ -788,7 +788,7 @@ Manifest permission and service policy:
 * Always declare only `INTERNET` and `ACCESS_NETWORK_STATE` for the local TCP/TLS transport and reconnect detection. TLS 1.3 is enforced by the protocol; `usesCleartextTraffic` is false. Do not request location, Bluetooth, Wi-Fi scan, or `NEARBY_WIFI_DEVICES` permissions because pairing uses a QR-carried address/token and ordinary sockets, not discovery APIs.
 * Declare `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`, and a non-exported `TransferForegroundService` with `foregroundServiceType="dataSync"`. Start it from a visible user action for a transfer, and keep its ongoing notification current. `POST_NOTIFICATIONS` is requested at runtime on API 33+ when enabling user-visible transfer notifications; denial does not itself prevent starting an FGS, but affects where its notification is shown.
 * Tier A uses version-gated media permissions: `READ_EXTERNAL_STORAGE` through API 32, `READ_MEDIA_IMAGES`/`VIDEO`/`AUDIO` from API 33, and `READ_MEDIA_VISUAL_USER_SELECTED` for API 34 partial photo/video access. `WRITE_EXTERNAL_STORAGE` is limited to API 28 for legacy public-media writes. `ACCESS_MEDIA_LOCATION` is optional and requested only if the user chooses to preserve unredacted photo coordinates. Documents/Downloads use SAF URI grants and do not require broad storage access.
-* Tier B declares `READ/WRITE_CONTACTS` and `READ/WRITE_CALENDAR`; request them only after the user selects that category. Tier D sideload transfer declares `QUERY_ALL_PACKAGES` and `REQUEST_INSTALL_PACKAGES`; package visibility and each installation remain user-mediated. Tier E may declare `WRITE_SETTINGS`, but must route to `ACTION_MANAGE_WRITE_SETTINGS` and check `Settings.System.canWrite()`; `WRITE_SECURE_SETTINGS` is not declared as an ordinary third-party permission and remains Shiuku/Device Owner only.
+* Tier B declares `READ/WRITE_CONTACTS` and `READ/WRITE_CALENDAR`; request them only after the user selects that category. Tier D sideload transfer declares `QUERY_ALL_PACKAGES` and `REQUEST_INSTALL_PACKAGES`; package visibility and each installation remain user-mediated. Tier E may declare `WRITE_SETTINGS`, but must route to `ACTION_MANAGE_WRITE_SETTINGS` and check `Settings.System.canWrite()`; `WRITE_SECURE_SETTINGS` is not declared as an ordinary third-party permission and remains Shizuku/Device Owner only.
 * Tier C declares `READ_SMS` and `READ_CALL_LOG` only for the explicit migration source-export use case. Both are hard-restricted; request each at runtime only after the corresponding user action and read only when Android reports the grant. Google Play distribution requires the relevant permissions declaration and policy approval for the eligible backup/device-migration use case; approval is not guaranteed. Sideloading alone does not grant access. Do not request default SMS/Phone roles or impersonate those apps; if installer/platform does not grant access, report `UNAVAILABLE/PERMISSION_DENIED`. No write permission is declared until target restore is designed and policy-reviewed.
 * Permission prompts are category-scoped at runtime, never requested together at app launch. Do not declare `MANAGE_EXTERNAL_STORAGE`, `WRITE_SECURE_SETTINGS`, or permissions for Wi-Fi scanning/device discovery.
 * Platform references used for this permission matrix: [shared media access](https://developer.android.com/training/data-storage/shared/media), [Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files), [Android 14 partial photo/video access](https://developer.android.com/about/versions/14/changes/partial-photo-video-access), and [foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types).
@@ -802,8 +802,8 @@ dependencies {
     implementation("androidx.compose.ui:ui:1.6.0")
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
     implementation("androidx.compose.material3:material3:1.2.0")
-    implementation("dev.rikka.shiuku:api:13.1.5")
-    implementation("dev.rikka.shiuku:provider:13.1.5")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("org.jetbrains.kotlinx:kotlinx-serialiation-json:1.6.0")
 }
 ```
@@ -841,12 +841,12 @@ Development sideload scripts live in `android-client/`:
 * Категорії: Tier C (текстові SMS і журнал дзвінків лише за фактичних platform grants; MMS не входить у поточний scope), Tier D (APK).
 * **Acceptance:** перенести фото, контакти, доступні текстові SMS та 5 підтриманих APK між двома телефонами без ПК. SMS/Call Log acceptance виконується лише на дозволеному build/device profile із законно наданими permissions; без них capability має бути `UNAVAILABLE`, без спроби обходу.
 
-### M3 — Shiuku + налаштування
+### M3 — Shizuku + налаштування
 
-* Shiuku інтеграція.
-* SettingsProvider через Shiuku.
+* Shizuku інтеграція.
+* SettingsProvider через Shizuku.
 * Категорії: Tier E.
-* **Acceptance:** для кожного явно підтриманого setting окремо перевірити Shiuku/Device Owner availability, OEM policy та destination readback; не заявляти універсальний перенос системних налаштувань. Provisioning Device Owner (якщо тестується) відокремити від звичайного user flow і показати factory-reset вимогу.
+* **Acceptance:** для кожного явно підтриманого setting окремо перевірити Shizuku/Device Owner availability, OEM policy та destination readback; не заявляти універсальний перенос системних налаштувань. Provisioning Device Owner (якщо тестується) відокремити від звичайного user flow і показати factory-reset вимогу.
 
 ### M4 — Професійний режим
 
@@ -943,7 +943,7 @@ Development sideload scripts live in `android-client/`:
 
 1. Використовувати офіційні Android API в першу чергу.
 2. Якщо механізм deprecated (напр. `adb backup` після Android 12) — **детектувати й документувати, не імітувати успіх**.
-3. Shiuku — офіційний ADB-рівень без ПК, інтегрувати як опцію.
+3. Shizuku — офіційний ADB-рівень без ПК, інтегрувати як опцію.
 4. Device Owner — опційно, з документуванням factory reset.
 5. Кожна категорія декларує: `access_method`, `permission_required`, `fallback`, `reason_if_impossible`.
 6. Capability-манифест — runtime, не хардкод.
@@ -977,7 +977,7 @@ Development sideload scripts live in `android-client/`:
 |`PARTIAL`|Перенесено не все, є пояснення.|
 |`UNAVAILABLE`|Недоступно цим методом.|
 |`FAILED_INTEGRITY`|SHA-256 не збігається — помилка, не «частково».|
-|Shiuku|Офіційний ADB-рівень без ПК (Android 11+).|
+|Shizuku|Офіційний ADB-рівень без ПК (Android 11+).|
 |Device Owner|Офіційний режим адміністрування пристрою.|
 |D2D Transfer|Системний перенос між пристроями, немає публічного API.|
 

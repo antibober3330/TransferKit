@@ -133,6 +133,26 @@ class ReceiverTest {
     }
 
     @Test
+    fun receiverStreamReportsCorruptChunkAsCrcMismatch() {
+        val payload = "crc classification fixture".toByteArray()
+        val transferId = UUID.randomUUID()
+        val corruptedChunk = chunk(transferId, 0, 1, payload).also {
+            it[it.lastIndex] = (it.last().toInt() xor 0x01).toByte()
+        }
+        val input = ByteArrayOutputStream().apply {
+            write(ProtocolCodec.encodeManifestFrame(manifest(transferId, payload)))
+            write(corruptedChunk)
+        }.toByteArray()
+        val output = ByteArrayOutputStream()
+
+        ReceiverStreamHandler(newReceiver()).serve(ByteArrayInputStream(input), output, transferId)
+
+        val response = ByteArrayInputStream(output.toByteArray())
+        assertEquals(0, ProtocolCodec.readAcknowledgement(response, AckKind.MANIFEST).status)
+        assertEquals(2, ProtocolCodec.readAcknowledgement(response, AckKind.CHUNK).status)
+    }
+
+    @Test
     fun durableProgressUsesCheckpointOffsetRatherThanRetriedChunkCount() {
         val payload = "abcdefghij".toByteArray()
         val transferId = UUID.randomUUID()

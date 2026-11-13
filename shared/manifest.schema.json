@@ -49,6 +49,8 @@
         "method": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" },
         "items": {
           "type": "array",
+          "maxItems": 100000,
+          "description": "May be empty when a selected category contains no accessible items; semantic validators cap the total across categories at 100000.",
           "items": { "$ref": "#/$defs/item" }
         }
       }

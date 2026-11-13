@@ -92,8 +92,8 @@ def _target_permissions(category_id: CategoryId, sdk: int) -> list[str]:
     """Permissions needed by the current Android restore path on the target."""
     if category_id in (CategoryId.PHOTOS, CategoryId.VIDEOS, CategoryId.AUDIO):
         # MediaStore owns inserted rows on Android 10+; older APIs need the
-        # legacy public-storage write permission (restore support is separately
-        # called out as unavailable below API 29).
+        # legacy public-storage write permission; restore is available on both
+        # the legacy and scoped-storage adapters.
         return ["android.permission.WRITE_EXTERNAL_STORAGE"] if sdk <= 28 else []
     if category_id == CategoryId.CONTACTS:
         return ["android.permission.WRITE_CONTACTS"]
@@ -113,7 +113,10 @@ def _preflight_notes(category_id: CategoryId, source_sdk: int, target_sdk: int) 
     if category_id == CategoryId.VIDEOS and source_sdk >= 34:
         notes.append("Android 14+: video access may be limited to items selected in the system picker.")
     if category_id in (CategoryId.PHOTOS, CategoryId.VIDEOS, CategoryId.AUDIO) and target_sdk < 29:
-        notes.append("This app's MediaStore restore requires Android 10 (API 29) or newer on the target.")
+        notes.append(
+            "Android 8–9 (API 26–28) restores through public media folders and requires WRITE_EXTERNAL_STORAGE; "
+            "Android 10+ uses the scoped MediaStore restore path."
+        )
     if category_id in (CategoryId.DOCUMENTS, CategoryId.DOWNLOADS):
         notes.append("Access is granted to user-selected files through Android's system document picker (SAF).")
     if category_id == CategoryId.APKS:

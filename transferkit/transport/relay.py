@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import socket
 from collections.abc import Callable
 from pathlib import Path
@@ -37,6 +36,7 @@ class TargetTransport(Protocol):
 
 ProgressCallback = Callable[[CategoryId, str, int, int], None]
 ManifestCallback = Callable[[TransferManifest], None]
+ManifestAcceptedCallback = Callable[[TransferManifest], None]
 ChunkAckCallback = Callable[[CategoryId, str, DecodedChunk, ChunkAcknowledgement], None]
 
 
@@ -70,7 +70,7 @@ def _read_source_manifest(connection: socket.socket) -> TransferManifest:
         return manifest
     except TransportError:
         raise
-    except (ValueError, TypeError, json.JSONDecodeError) as exc:
+    except (ValueError, TypeError) as exc:
         raise TransportError(ReasonCode.INVALID_MANIFEST, "Source manifest failed contract validation") from exc
 
 
@@ -95,6 +95,7 @@ def relay_authenticated_source_stream(
     chunk_size: int = RECOMMENDED_CHUNK_SIZE,
     on_progress: ProgressCallback | None = None,
     on_manifest: ManifestCallback | None = None,
+    on_manifest_accepted: ManifestAcceptedCallback | None = None,
     on_chunk_ack: ChunkAckCallback | None = None,
 ) -> TransferReceipt:
     """Relay an already-authenticated Android TKMF/TKCH stream to the target.
@@ -108,6 +109,8 @@ def relay_authenticated_source_stream(
     if on_manifest is not None:
         on_manifest(manifest)
     target.send_manifest(manifest)
+    if on_manifest_accepted is not None:
+        on_manifest_accepted(manifest)
     try:
         source_connection.sendall(_ack_frame(manifest.transfer_id, ACK_KIND_MANIFEST))
     except OSError as exc:
@@ -117,7 +120,7 @@ def relay_authenticated_source_stream(
     total_confirmed = 0
     for category_id, category in sorted(manifest.categories.items(), key=lambda entry: entry[0].value):
         for item in category.items:
-            total_chunks = max(1, math.ceil(item.size / chunk_size))
+            total_chunks = max(1, (item.size + chunk_size - 1) // chunk_size)
             expected_category_hash = hashlib.sha256(category_id.value.encode("utf-8")).digest()[:4]
             expected_item_hash = hashlib.sha256(item.id.encode("utf-8")).digest()[:4]
             item_confirmed = 0

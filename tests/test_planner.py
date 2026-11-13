@@ -79,7 +79,7 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(contacts.target_permissions, ["android.permission.WRITE_CONTACTS"])
         photos = plan.categories[CategoryId.PHOTOS]
         self.assertEqual(photos.target_permissions, ["android.permission.WRITE_EXTERNAL_STORAGE"])
-        self.assertTrue(any("API 29" in note for note in photos.preflight_notes))
+        self.assertTrue(any("API 26–28" in note and "WRITE_EXTERNAL_STORAGE" in note for note in photos.preflight_notes))
         self.assertEqual(
             plan.categories[CategoryId.APKS].target_permissions,
             ["android.permission.REQUEST_INSTALL_PACKAGES"],

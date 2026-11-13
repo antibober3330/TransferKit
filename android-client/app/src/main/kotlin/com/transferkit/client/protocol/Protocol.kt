@@ -16,6 +16,7 @@ const val MANIFEST_HEADER_SIZE: Int = 9
 const val MAX_CHUNK_BYTES: Int = 8 * 1024 * 1024
 const val RECOMMENDED_CHUNK_BYTES: Int = 4 * 1024 * 1024
 const val MAX_MANIFEST_BYTES: Int = 64 * 1024 * 1024
+const val MAX_MANIFEST_ITEMS: Long = 100_000L
 const val MAX_RECEIPT_BYTES: Int = 64 * 1024 * 1024
 const val FINISH_REQUEST_SIZE: Int = 21
 const val RECEIPT_RESPONSE_HEADER_SIZE: Int = 26
@@ -36,6 +37,12 @@ private val CATEGORY_IDS = setOf(
 )
 
 class ProtocolException(message: String, cause: Throwable? = null) : IllegalArgumentException(message, cause)
+
+fun validateManifestItemCount(count: Long) {
+    require(count in 0..MAX_MANIFEST_ITEMS) {
+        "Manifest cannot contain more than $MAX_MANIFEST_ITEMS items in total"
+    }
+}
 
 data class ChunkHeader(
     val transferId: UUID,

@@ -7,12 +7,16 @@ import re
 from datetime import datetime, timezone
 from enum import Enum, StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
+from functools import lru_cache
 
 from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_serializer, field_validator, model_validator
 from referencing import Registry, Resource
+
+
+MAX_MANIFEST_ITEMS = 100_000
 
 
 class CategoryId(StrEnum):
@@ -143,8 +147,6 @@ class ReceiptFailureStage(StrEnum):
     RECEIVE = "RECEIVE"
     CRC32_VERIFY = "CRC32_VERIFY"
     SHA256_VERIFY = "SHA256_VERIFY"
-    RESTORE = "RESTORE"
-    POST_VERIFY = "POST_VERIFY"
 
 
 CATEGORY_TIER: dict[CategoryId, Tier] = {
@@ -210,10 +212,18 @@ class ManifestItem(ContractModel):
         return value
 
 
+def _validate_manifest_item_limit(categories: Any) -> None:
+    total_items = 0
+    for category in categories.values():
+        total_items += len(category.items)
+        if total_items > MAX_MANIFEST_ITEMS:
+            raise ValueError(f"manifest cannot contain more than {MAX_MANIFEST_ITEMS} items in total")
+
+
 class ManifestCategory(ContractModel):
     provider: str = Field(min_length=1, max_length=128, pattern=r"\S")
     method: str = Field(min_length=1, max_length=128, pattern=r"\S")
-    items: list[ManifestItem]
+    items: list[ManifestItem] = Field(max_length=MAX_MANIFEST_ITEMS)
 
     @model_validator(mode="after")
     def unique_item_ids(self) -> ManifestCategory:
@@ -266,6 +276,7 @@ class TransferManifest(ContractModel):
 
     @model_validator(mode="after")
     def wire_item_ids_must_be_collision_free(self) -> TransferManifest:
+        _validate_manifest_item_limit(self.categories)
         # Keep sender-side validation aligned with the receiver's 32-bit wire IDs.
         from .integrity import id_hash
 
@@ -284,7 +295,7 @@ class CapabilityEntry(ContractModel):
     tier: Tier
     status: CapabilityStatus
     method: str = Field(min_length=1, max_length=256)
-    permission_required: list[str] = Field(default_factory=list)
+    permission_required: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(default_factory=list)
     fallback: str | None = Field(default=None, max_length=512)
     reason: ReasonCode
     evidence: list[str] = Field(default_factory=list, max_length=64)
@@ -485,8 +496,6 @@ _RECEIPT_TO_REPORT_STAGE = {
     ReceiptFailureStage.RECEIVE: FailureStage.TRANSFER,
     ReceiptFailureStage.CRC32_VERIFY: FailureStage.VERIFY,
     ReceiptFailureStage.SHA256_VERIFY: FailureStage.VERIFY,
-    ReceiptFailureStage.RESTORE: FailureStage.RESTORE,
-    ReceiptFailureStage.POST_VERIFY: FailureStage.POST_VERIFY,
 }
 
 
@@ -562,7 +571,7 @@ class TransferReceipt(ContractModel):
     version: Literal["1.0"]
     transfer_id: UUID
     received_at: datetime
-    categories: dict[CategoryId, CategoryReceipt]
+    categories: dict[CategoryId, CategoryReceipt] = Field(min_length=1)
 
     @field_validator("received_at")
     @classmethod
@@ -671,6 +680,7 @@ class ChunkHeader(ContractModel):
         return self
 
 
+@lru_cache(maxsize=4)
 def _schema_registry(schema_dir: Path) -> tuple[dict[str, dict[str, Any]], Registry]:
     documents: dict[str, dict[str, Any]] = {}
     for schema_path in sorted(schema_dir.glob("*.schema.json")):
@@ -692,7 +702,7 @@ def validate_document(document: dict[str, Any], schema_name: str) -> ContractMod
     """
     if Path(schema_name).name != schema_name or not schema_name.endswith(".schema.json"):
         raise ValueError("schema_name must be a local *.schema.json filename")
-    schema_dir = Path(__file__).resolve().parents[1] / "shared"
+    schema_dir = (Path(__file__).resolve().parents[1] / "shared").resolve()
     documents, registry = _schema_registry(schema_dir)
     try:
         schema = documents[schema_name]

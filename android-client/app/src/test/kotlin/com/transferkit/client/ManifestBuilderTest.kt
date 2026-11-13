@@ -219,6 +219,38 @@ class ManifestBuilderTest {
         cache.deleteRecursively()
     }
 
+    @Test
+    fun rejectsMetadataNestedBeyondTheContractLimit() {
+        val cache = Files.createTempDirectory("tk-manifest-depth-").toFile()
+        var nested: Any? = "leaf"
+        repeat(40) { nested = mapOf("next" to nested) }
+
+        val failure = assertThrows(IllegalArgumentException::class.java) {
+            ManifestBuilder(cache).build(
+                device,
+                listOf(
+                    ManifestCategorySource(
+                        "photos",
+                        "FixtureProvider",
+                        "deep metadata",
+                        listOf(ManifestItemSource("photo-deep", 0, mapOf("nested" to nested)) {}),
+                    ),
+                ),
+            )
+        }
+        assertTrue(failure.message!!.contains("nesting depth"))
+        assertFalse(File(cache, "transferkit-manifest-snapshots").exists())
+        cache.deleteRecursively()
+    }
+
+    @Test
+    fun enforcesSharedManifestItemLimit() {
+        com.transferkit.client.protocol.validateManifestItemCount(100_000L)
+        assertThrows(IllegalArgumentException::class.java) {
+            com.transferkit.client.protocol.validateManifestItemCount(100_001L)
+        }
+    }
+
     private fun sha256(bytes: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256")
         .digest(bytes)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }

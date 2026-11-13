@@ -3,12 +3,14 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 from pydantic import ValidationError
 
 from transferkit.contracts import (
     CATEGORY_TIER,
+    MAX_MANIFEST_ITEMS,
     CategoryId,
     CapabilityManifest,
     ReasonCode,
@@ -16,6 +18,7 @@ from transferkit.contracts import (
     TransferManifest,
     TransferReceipt,
     TransferReport,
+    _validate_manifest_item_limit,
     canonical_json_bytes,
     validate_document,
 )
@@ -146,6 +149,15 @@ class ContractModelTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             TransferManifest.model_validate(payload)
 
+    def test_manifest_total_item_limit_is_enforced_across_categories(self) -> None:
+        with self.assertRaisesRegex(ValueError, "100000 items"):
+            _validate_manifest_item_limit(
+                {
+                    CategoryId.PHOTOS: SimpleNamespace(items=range(MAX_MANIFEST_ITEMS // 2 + 1)),
+                    CategoryId.VIDEOS: SimpleNamespace(items=range(MAX_MANIFEST_ITEMS // 2)),
+                }
+            )
+
     def test_manifest_schema_validation_rejects_oversized_item_metadata(self) -> None:
         payload = valid_manifest()
         payload["categories"]["photos"]["items"][0]["metadata"] = {"note": "x" * (64 * 1024)}
@@ -158,6 +170,13 @@ class ContractModelTests(unittest.TestCase):
         del payload["categories"]["drm"]
         with self.assertRaises(ValidationError):
             CapabilityManifest.model_validate(payload)
+
+        payload = valid_capability_manifest()
+        payload["categories"]["contacts"]["permission_required"] = [""]
+        with self.assertRaises(ValidationError):
+            CapabilityManifest.model_validate(payload)
+        with self.assertRaises(ValueError):
+            validate_document(payload, "capability.schema.json")
         payload = valid_capability_manifest()
         payload["categories"]["contacts"]["tier"] = "A"
         with self.assertRaises(ValidationError):
@@ -227,6 +246,21 @@ class ContractModelTests(unittest.TestCase):
         payload["categories"]["photos"]["failures"] = []
         with self.assertRaises(ValidationError):
             TransferReceipt.model_validate(payload)
+
+    def test_final_receipt_rejects_restore_stages_and_empty_categories(self) -> None:
+        payload = valid_receipt()
+        payload["categories"]["photos"]["failures"][0]["stage"] = "RESTORE"
+        with self.assertRaises(ValidationError):
+            TransferReceipt.model_validate(payload)
+        with self.assertRaises(ValueError):
+            validate_document(payload, "receipt.schema.json")
+
+        payload = valid_receipt()
+        payload["categories"] = {}
+        with self.assertRaises(ValidationError):
+            TransferReceipt.model_validate(payload)
+        with self.assertRaises(ValueError):
+            validate_document(payload, "receipt.schema.json")
 
     def test_recovery_and_space_decision_codes_are_known_and_schema_valid(self) -> None:
         decision_codes = (

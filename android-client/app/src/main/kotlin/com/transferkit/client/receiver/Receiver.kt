@@ -5,6 +5,8 @@ import android.database.sqlite.SQLiteException
 import com.transferkit.client.protocol.AckKind
 import com.transferkit.client.protocol.Acknowledgement
 import com.transferkit.client.protocol.MAX_MANIFEST_BYTES
+import com.transferkit.client.protocol.JSON_CODE_POINT_ORDER
+import com.transferkit.client.protocol.validateManifestItemCount
 import com.transferkit.client.protocol.MAX_UINT32
 import com.transferkit.client.protocol.ProtocolCodec
 import com.transferkit.client.protocol.ProtocolException
@@ -737,12 +739,15 @@ internal object IncomingManifestValidator {
         val categories = root.objectValue("categories")
         require(categories.isNotEmpty() && categories.keys.all { it in allowedCategories })
         val itemIndex = LinkedHashMap<String, IncomingItem>()
+        var totalItems = 0L
         categories.forEach { (categoryId, rawCategory) ->
             val category = rawCategory as? JsonObject ?: error("Category must be an object")
             require(category.keys == setOf("provider", "method", "items"))
             require(category.string("provider").isNotBlank() && category.string("provider").codePointLength() <= 128)
             require(category.string("method").isNotBlank() && category.string("method").codePointLength() <= 128)
             val items = category["items"] as? JsonArray ?: error("Category items must be an array")
+            totalItems += items.size.toLong()
+            validateManifestItemCount(totalItems)
             val seenItemIds = HashSet<String>()
             items.forEach { rawItem ->
                 val item = rawItem as? JsonObject ?: error("Manifest item must be an object")
@@ -795,32 +800,23 @@ internal object IncomingManifestValidator {
         }
     }
 
-    private fun canonicalize(element: JsonElement): JsonElement = when (element) {
-        is JsonObject -> JsonObject(element.toSortedMap(CODE_POINT_ORDER).mapValues { (_, value) -> canonicalize(value) })
-        is JsonArray -> JsonArray(element.map(::canonicalize))
+    private fun canonicalize(element: JsonElement, depth: Int = 0): JsonElement {
+        require(depth <= MAX_METADATA_DEPTH) { "Manifest metadata exceeds the maximum nesting depth" }
+        return when (element) {
+        is JsonObject -> JsonObject(element.toSortedMap(JSON_CODE_POINT_ORDER).mapValues { (_, value) -> canonicalize(value, depth + 1) })
+        is JsonArray -> JsonArray(element.map { canonicalize(it, depth + 1) })
         JsonNull -> JsonNull
         else -> element
+        }
     }
 
     private fun hashKey(categoryHash: ByteArray, itemHash: ByteArray): String =
         categoryHash.joinToString("") { "%02x".format(it.toInt() and 0xff) } +
             itemHash.joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
-    private val CODE_POINT_ORDER = Comparator<String> { first, second ->
-        var firstIndex = 0
-        var secondIndex = 0
-        while (firstIndex < first.length && secondIndex < second.length) {
-            val firstCodePoint = first.codePointAt(firstIndex)
-            val secondCodePoint = second.codePointAt(secondIndex)
-            if (firstCodePoint != secondCodePoint) return@Comparator firstCodePoint.compareTo(secondCodePoint)
-            firstIndex += Character.charCount(firstCodePoint)
-            secondIndex += Character.charCount(secondCodePoint)
-        }
-        (first.length - firstIndex).compareTo(second.length - secondIndex)
-    }
-
     private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
     private const val MAX_METADATA_BYTES = 64 * 1024
+    private const val MAX_METADATA_DEPTH = 32
 }
 
 private fun String.codePointLength(): Int = codePointCount(0, length)

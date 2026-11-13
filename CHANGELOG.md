@@ -2,9 +2,24 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
-## Unreleased
+## [0.1.0-alpha.4] - 2026-11-13
 
-Changes for the next version will be recorded here.
+Development snapshot for source publication; no release tag. This remains an alpha and is not a production release.
+
+### Fixed
+
+- Fixed Android receiver classification for CRC32 mismatches so corrupt chunks are reported as integrity failures rather than transfer-ID mismatches.
+- Use integer ceiling arithmetic for chunk counts and byte ranges; avoid floating-point rounding at large file sizes.
+- Deliver the accepted manifest total to Station progress before the first chunk ACK, and prevent closing the window while worker threads are active.
+- Remove settings controls that were not connected to transfer behavior; expose the active confirmation setting honestly.
+- Align receipt categories and failure stages across Python models and JSON Schema, bound manifest item counts and metadata nesting, and make Android/Python canonical JSON ordering consistent for Unicode keys.
+- Correct API 26–28 restore, Shizuku, and adapter-status documentation where it overstated current behavior.
+
+### Validation
+
+- Python: 148/148 passed.
+- Android unit: 81/81 passed before the version bump; instrumentation APK compilation passed after it.
+- Physical acceptance remains open where noted in `WORK_CHECKLIST.md` and `docs/project/RELEASE_READINESS.md`.
 
 ## [0.1.0-alpha.3] - 2026-11-13
 

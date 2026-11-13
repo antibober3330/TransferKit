@@ -12,6 +12,7 @@
     "received_at": { "type": "string", "format": "date-time", "pattern": "Z$" },
     "categories": {
       "type": "object",
+      "minProperties": 1,
       "propertyNames": {
         "enum": ["photos", "videos", "audio", "documents", "downloads", "contacts", "calendar", "sms", "call_log", "apks", "settings", "app_data", "wifi_passwords", "launcher_layout", "accounts", "drm", "banking_apps", "two_factor_tokens"]
       },
@@ -39,7 +40,7 @@
       "required": ["item_id", "stage", "reason"],
       "properties": {
         "item_id": { "type": "string", "minLength": 1, "maxLength": 512 },
-        "stage": { "enum": ["RECEIVE", "CRC32_VERIFY", "SHA256_VERIFY", "RESTORE", "POST_VERIFY"] },
+        "stage": { "enum": ["RECEIVE", "CRC32_VERIFY", "SHA256_VERIFY"] },
         "reason": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{1,63}$" }
       }
     }

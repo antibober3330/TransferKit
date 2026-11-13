@@ -8,7 +8,6 @@ import sqlite3
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -269,20 +268,17 @@ class SettingsView(QWidget):
         self.heading.setObjectName("settingsHeading")
         self.adb_path = QLineEdit(str(settings.value("adb/executable", "")))
         self.adb_path.setPlaceholderText("Автоматичний пошук ADB, якщо поле порожнє")
-        self.mode = QComboBox()
-        self.mode.addItem("Швидкий", "quick")
-        self.mode.addItem("Повний", "full")
-        self.mode.addItem("Професійний", "professional")
-        selected_mode = str(settings.value("transfer/default_mode", "quick"))
-        selected_index = self.mode.findData(selected_mode)
-        self.mode.setCurrentIndex(max(0, selected_index))
+        self.mode_status = QLabel(
+            "Режими «Швидкий», «Повний» і «Професійний» ще не під’єднані до політик передачі."
+        )
+        self.mode_status.setWordWrap(True)
         self.confirm_before_transfer = QCheckBox("Завжди питати підтвердження перед передачею")
         self.confirm_before_transfer.setChecked(
             settings.value("transfer/confirm_before_start", True, type=bool)
         )
         form = QFormLayout()
         form.addRow("ADB executable", self.adb_path)
-        form.addRow("Режим за замовчуванням", self.mode)
+        form.addRow("Режими передачі", self.mode_status)
         self.save_button = QPushButton("Зберегти налаштування")
         self.save_button.clicked.connect(self.save)
         self.status = QLabel("Налаштування зберігаються локально.")
@@ -297,7 +293,6 @@ class SettingsView(QWidget):
 
     def save(self) -> None:
         self.settings.setValue("adb/executable", self.adb_path.text().strip())
-        self.settings.setValue("transfer/default_mode", self.mode.currentData())
         self.settings.setValue("transfer/confirm_before_start", self.confirm_before_transfer.isChecked())
         self.settings.sync()
         if self.settings.status() != QSettings.Status.NoError:

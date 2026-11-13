@@ -92,13 +92,19 @@ object RecoveryFrameCodec {
         if (root.canonicalJson() != text) throw ProtocolException("Recovery payload must use canonical JSON encoding")
     }
 
-    private fun JsonElement.canonicalJson(): String = when (this) {
-        is JsonObject -> entries.sortedBy { it.key }.joinToString(",", "{", "}") {
-            "${JsonPrimitive(it.key)}:${it.value.canonicalJson()}"
+    private fun JsonElement.canonicalJson(depth: Int = 0): String {
+        if (depth > MAX_CANONICAL_JSON_DEPTH) throw ProtocolException("Recovery JSON exceeds the maximum nesting depth")
+        return when (this) {
+            is JsonObject -> entries.sortedWith { first, second -> JSON_CODE_POINT_ORDER.compare(first.key, second.key) }
+                .joinToString(",", "{", "}") {
+                    "${JsonPrimitive(it.key)}:${it.value.canonicalJson(depth + 1)}"
+                }
+            is JsonArray -> joinToString(",", "[", "]") { it.canonicalJson(depth + 1) }
+            is JsonPrimitive -> toString()
         }
-        is JsonArray -> joinToString(",", "[", "]") { it.canonicalJson() }
-        is JsonPrimitive -> toString()
     }
+
+    private const val MAX_CANONICAL_JSON_DEPTH = 32
 
     private fun ByteBuffer.putAscii(value: String) = put(value.toByteArray(Charsets.US_ASCII))
     private fun ByteBuffer.readAscii(size: Int) = String(ByteArray(size).also(::get), Charsets.US_ASCII)

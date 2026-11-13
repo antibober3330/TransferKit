@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from collections.abc import Callable
 from uuid import UUID
 
 from ..contracts import ReasonCode, TransferManifest, TransferReceipt
@@ -30,6 +31,7 @@ def run_authenticated_usb_adb_transfer(
     target_serial: str,
     *,
     on_progress: ProgressCallback | None = None,
+    on_manifest_accepted: Callable[[TransferManifest], None] | None = None,
 ) -> UsbAdbTransferResult:
     """Relay a user-prepared source bundle to a user-started target receiver.
 
@@ -106,6 +108,7 @@ def run_authenticated_usb_adb_transfer(
                 chunk_size=chunk_size,
                 on_progress=on_progress,
                 on_manifest=register_manifest,
+                on_manifest_accepted=on_manifest_accepted,
                 on_chunk_ack=record_chunk_ack,
             )
             if transfer_id is None or manifest_sha256 is None or not history_started:
