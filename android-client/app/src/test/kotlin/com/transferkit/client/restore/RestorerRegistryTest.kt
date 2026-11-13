@@ -8,6 +8,16 @@ import org.junit.Test
 
 class RestorerRegistryTest {
     @Test
+    fun mediaFileCategoriesAreEligibleForApiSpecificAdaptersAndApiRecordsAreNot() {
+        assertEquals(true, isFileMediaRestoreCategory("photos"))
+        assertEquals(true, isFileMediaRestoreCategory("videos"))
+        assertEquals(true, isFileMediaRestoreCategory("audio"))
+        assertEquals(true, isFileMediaRestoreCategory("downloads"))
+        assertEquals(false, isFileMediaRestoreCategory("contacts"))
+        assertEquals(false, isFileMediaRestoreCategory("calendar"))
+    }
+
+    @Test
     fun dispatchesOnlyToOwningAdapterAndPreservesApproval() {
         val adapter = FakeRestorer(setOf("photos"), RestoreItemStatus.RESTORED)
         val registry = RestorerRegistry(listOf(adapter))

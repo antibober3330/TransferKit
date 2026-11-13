@@ -5,6 +5,7 @@ import android.net.LocalSocket
 import android.net.LocalSocketAddress
 import android.os.SystemClock
 import com.transferkit.client.receiver.AndroidTransferReceiver
+import com.transferkit.client.receiver.DurableTransferProgress
 import java.io.Closeable
 import java.io.EOFException
 import java.io.IOException
@@ -17,7 +18,10 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /** Local abstract-socket receiver exposed only through an explicitly forwarded ADB session. */
-class UsbAdbReceiverServer(private val receiver: AndroidTransferReceiver) : Closeable {
+class UsbAdbReceiverServer(
+    private val receiver: AndroidTransferReceiver,
+    private val onDurableProgress: ((DurableTransferProgress) -> Unit)? = null,
+) : Closeable {
     private val sessions = PendingSessionStore()
     private val workers: ExecutorService = Executors.newFixedThreadPool(2)
     @Volatile private var closed = false
@@ -101,7 +105,8 @@ class UsbAdbReceiverServer(private val receiver: AndroidTransferReceiver) : Clos
         socket.outputStream.write(UsbAdbAuthProtocol.encodeAuthResult(pending.transferId, if (authenticated) 0 else 1))
         socket.outputStream.flush()
         if (authenticated) {
-            ReceiverStreamHandler(receiver).serve(socket.inputStream, socket.outputStream, pending.transferId)
+            ReceiverStreamHandler(receiver, onDurableProgress)
+                .serve(socket.inputStream, socket.outputStream, pending.transferId)
         }
     }
 

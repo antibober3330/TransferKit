@@ -7,8 +7,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.transferkit.client.receiver.AndroidTransferReceiver
+import com.transferkit.client.receiver.DurableTransferProgress
 import com.transferkit.client.transport.UsbAdbReceiverServer
 import com.transferkit.client.transport.UsbAdbSourceServer
 
@@ -18,6 +20,7 @@ class TransferForegroundService : Service() {
     private var adbReceiverServer: UsbAdbReceiverServer? = null
     private var adbSourceServer: UsbAdbSourceServer? = null
     private var sourceManifestBundle: TransferManifestBundle? = null
+    private var lastProgressNotificationAtMillis = Long.MIN_VALUE
 
     override fun onCreate() {
         super.onCreate()
@@ -84,8 +87,12 @@ class TransferForegroundService : Service() {
         }
         setReceiverStatus(STATUS_STARTING)
         try {
+            lastProgressNotificationAtMillis = Long.MIN_VALUE
+            currentDurableProgress = null
             receiver = AndroidTransferReceiver(applicationContext)
-            adbReceiverServer = UsbAdbReceiverServer(requireNotNull(receiver)).also { it.start() }
+            adbReceiverServer = UsbAdbReceiverServer(requireNotNull(receiver)) { progress ->
+                reportDurableProgress(progress)
+            }.also { it.start() }
             setReceiverStatus(STATUS_LISTENING)
             updateNotification("Очікую Windows Station через USB/ADB")
         } catch (_: Exception) {
@@ -106,6 +113,7 @@ class TransferForegroundService : Service() {
             return
         }
         setSourceStatus(STATUS_STARTING)
+        currentDurableProgress = null
         val bundle = synchronized(sourceBundleLock) {
             pendingSourceManifest.also { pendingSourceManifest = null }
         }
@@ -150,7 +158,25 @@ class TransferForegroundService : Service() {
     private fun setReceiverStatus(status: String) = setReceiverStatus(this, status)
     private fun setSourceStatus(status: String) = setSourceStatus(this, status)
 
-    private fun updateNotification(message: String) {
+    private fun formatProgressBytes(bytes: Long): String =
+        String.format(java.util.Locale.getDefault(), "%.1f MiB", bytes / (1024.0 * 1024.0))
+
+    @Synchronized
+    private fun reportDurableProgress(progress: DurableTransferProgress) {
+        currentDurableProgress = progress
+        val now = SystemClock.elapsedRealtime()
+        val isFirstUpdate = lastProgressNotificationAtMillis == Long.MIN_VALUE
+        if (!isFirstUpdate && progress.percent < 100 && now - lastProgressNotificationAtMillis < PROGRESS_NOTIFICATION_INTERVAL_MS) {
+            return
+        }
+        lastProgressNotificationAtMillis = now
+        updateNotification(
+            "Отримано ${formatProgressBytes(progress.receivedBytes)} із ${formatProgressBytes(progress.totalBytes)}",
+            progress.percent,
+        )
+    }
+
+    private fun updateNotification(message: String, progressPercent: Int? = null) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setContentTitle("TransferKit")
@@ -158,6 +184,7 @@ class TransferForegroundService : Service() {
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setProgress(100, progressPercent?.coerceIn(0, 100) ?: 0, progressPercent == null)
             .build()
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
     }
@@ -180,6 +207,7 @@ class TransferForegroundService : Service() {
         private const val CHANNEL_ID = "transfer_progress"
         private const val NOTIFICATION_ID = 1001
         private const val CONTENT_REQUEST_CODE = 1002
+        private const val PROGRESS_NOTIFICATION_INTERVAL_MS = 1_000L
         private const val EXTRA_PHASE = "com.transferkit.client.extra.TRANSFER_PHASE"
         private const val EXTRA_PROGRESS = "com.transferkit.client.extra.TRANSFER_PROGRESS"
         private const val ACTION_START_ADB_RECEIVER = "com.transferkit.client.action.START_ADB_RECEIVER"
@@ -192,6 +220,7 @@ class TransferForegroundService : Service() {
         const val STATUS_ERROR = "ERROR"
         @Volatile private var currentReceiverStatus = STATUS_STOPPED
         @Volatile private var currentSourceStatus = STATUS_STOPPED
+        @Volatile private var currentDurableProgress: DurableTransferProgress? = null
         private val sourceBundleLock = Any()
         private var pendingSourceManifest: TransferManifestBundle? = null
 
@@ -242,6 +271,13 @@ class TransferForegroundService : Service() {
 
         fun sourceStatus(context: Context): String = currentSourceStatus
 
+        /** Snapshot contains only aggregate durable byte counters and listener states. */
+        fun progressSnapshot(): TransferProgressSnapshot = TransferProgressSnapshot(
+            receiverStatus = currentReceiverStatus,
+            sourceStatus = currentSourceStatus,
+            durableProgress = currentDurableProgress,
+        )
+
         private fun setReceiverStatus(context: Context, status: String) {
             currentReceiverStatus = status
         }
@@ -270,4 +306,37 @@ class TransferForegroundService : Service() {
         RECONNECTING("Відновлюю з’єднання"),
         PAUSED("Передачу призупинено; чекпойнт збережено"),
     }
+}
+
+data class TransferProgressSnapshot(
+    val receiverStatus: String,
+    val sourceStatus: String,
+    val durableProgress: DurableTransferProgress?,
+) {
+    val progressFraction: Float?
+        get() = durableProgress
+            ?.takeIf { it.totalBytes > 0L }
+            ?.let { (it.receivedBytes.toDouble() / it.totalBytes.toDouble()).toFloat().coerceIn(0f, 1f) }
+
+    fun statusText(): String = when {
+        durableProgress != null && durableProgress.totalBytes <= 0L ->
+            "Отриманий обсяг порожній; відсоток для нульового розміру не обчислюється."
+        durableProgress != null && durableProgress.totalBytes > 0L && durableProgress.percent >= 100 ->
+            "Прийом завершено. Це ще не означає, що дані відновлено на пристрої."
+        durableProgress != null -> "Отримую дані; показано лише байти, підтверджені durable checkpoint."
+        receiverStatus == TransferForegroundService.STATUS_STARTING -> "Запускається приймач…"
+        receiverStatus == TransferForegroundService.STATUS_LISTENING -> "Приймач очікує Windows Station через USB/ADB."
+        receiverStatus == TransferForegroundService.STATUS_ERROR -> "Не вдалося запустити приймач. Перевір стан служби."
+        sourceStatus == TransferForegroundService.STATUS_STARTING -> "Запускається Android-джерело…"
+        sourceStatus == TransferForegroundService.STATUS_LISTENING -> "Джерело очікує Windows Station через USB/ADB."
+        sourceStatus == TransferForegroundService.STATUS_ERROR -> "Не вдалося запустити джерело. Перевір підготовлений маніфест."
+        else -> "Передача зараз не активна."
+    }
+
+    fun receivedBytesText(): String? = durableProgress?.takeIf { it.totalBytes > 0L }?.let {
+        "Отримано ${formatMiB(it.receivedBytes)} із ${formatMiB(it.totalBytes)}"
+    }
+
+    private fun formatMiB(bytes: Long): String =
+        String.format(java.util.Locale.getDefault(), "%.1f MiB", bytes / (1024.0 * 1024.0))
 }

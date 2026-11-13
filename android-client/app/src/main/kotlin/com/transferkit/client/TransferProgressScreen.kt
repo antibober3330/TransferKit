@@ -17,27 +17,39 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
-/** Transfer-screen scaffold; navigation is connected when the actual sender flow is implemented. */
+/** Shows only aggregate counters that the receiver has durably checkpointed. */
 @Composable
 fun TransferProgressScreen(
-    status: String,
-    progress: Float?,
+    onBack: () -> Unit,
     onPause: () -> Unit,
     onCancel: () -> Unit,
 ) {
-    val activity = LocalContext.current as? Activity
+    val context = LocalContext.current
+    val activity = context as? Activity
+    var snapshot by remember { mutableStateOf(TransferForegroundService.progressSnapshot()) }
     var keepScreenAwake by remember { mutableStateOf(false) }
     var dimWindow by remember { mutableStateOf(false) }
     var brightness by remember { mutableFloatStateOf(0.15f) }
+
+    LaunchedEffect(context) {
+        while (isActive) {
+            snapshot = TransferForegroundService.progressSnapshot()
+            delay(PROGRESS_REFRESH_INTERVAL_MS)
+        }
+    }
 
     DisposableEffect(activity, keepScreenAwake, dimWindow, brightness) {
         val window = activity?.window
@@ -69,9 +81,12 @@ fun TransferProgressScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Передача даних", style = MaterialTheme.typography.headlineMedium)
-            Text(status)
+            Button(onClick = onBack) { Text("Назад") }
+            Text(snapshot.statusText())
+            snapshot.receivedBytesText()?.let { Text(it) }
+            val progress = snapshot.progressFraction
             if (progress == null) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("Точний прогрес з’явиться після першого durable checkpoint.")
             } else {
                 LinearProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
@@ -80,13 +95,21 @@ fun TransferProgressScreen(
                 Text("${(progress.coerceIn(0f, 1f) * 100).toInt()}%")
             }
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Не гасити екран поки ця сторінка відкрита")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Не гасити екран поки ця сторінка відкрита", modifier = Modifier.weight(1f))
                 Switch(checked = keepScreenAwake, onCheckedChange = { keepScreenAwake = it })
             }
             if (keepScreenAwake) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Зменшити яскравість цього вікна")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Зменшити яскравість цього вікна", modifier = Modifier.weight(1f))
                     Switch(checked = dimWindow, onCheckedChange = { dimWindow = it })
                 }
                 if (dimWindow) {
@@ -101,9 +124,12 @@ fun TransferProgressScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onPause) { Text("Пауза") }
-                Button(onClick = onCancel) { Text("Скасувати") }
+                Button(onClick = onPause, enabled = false) { Text("Пауза") }
+                Button(onClick = onCancel, enabled = false) { Text("Скасувати") }
             }
+            Text("Керування паузою та скасуванням ще не під’єднане до безпечної межі чанка.")
         }
     }
 }
+
+private const val PROGRESS_REFRESH_INTERVAL_MS = 500L

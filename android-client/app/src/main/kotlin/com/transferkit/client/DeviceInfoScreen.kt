@@ -21,6 +21,7 @@ import java.util.Locale
 fun DeviceInfoScreen(
     deviceInfo: DeviceInfo,
     onOpenRestoreInbox: () -> Unit,
+    onOpenTransferProgress: () -> Unit,
     mediaStatus: String,
     onScanMedia: (MediaCategory) -> Unit,
     onScanPhotosWithOriginalMetadata: () -> Unit,
@@ -37,6 +38,8 @@ fun DeviceInfoScreen(
     onScanApks: () -> Unit,
     settingsStatus: String,
     onScanSettings: () -> Unit,
+    shizukuStatus: String,
+    onRequestShizukuPermission: () -> Unit,
     manifestSelectionCount: Int,
     manifestStatus: String,
     manifestBuildInProgress: Boolean,
@@ -61,6 +64,9 @@ fun DeviceInfoScreen(
             Text("TransferKit", style = MaterialTheme.typography.headlineMedium)
             Button(onClick = onOpenRestoreInbox) {
                 Text("Отримані передачі та відновлення")
+            }
+            Button(onClick = onOpenTransferProgress) {
+                Text("Стан передачі")
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text("Прийом з Windows Station через USB/ADB", style = MaterialTheme.typography.titleLarge)
@@ -108,7 +114,8 @@ fun DeviceInfoScreen(
                     "На Android 14+ READ_MEDIA_VISUAL_USER_SELECTED дозволяє лише доступ до фото й відео, " +
                     "вибраних у системному вікні файлів. " +
                     "Запит з’явиться після вибору категорії. На цілі запис через MediaStore не потребує READ_MEDIA; " +
-                    "відновлення медіа в цій версії застосунку підтримується з API 29."
+                    "На API 26–28 для відновлення фото, відео, аудіо та Downloads знадобиться окремий " +
+                    "дозвіл на запис; починаючи з API 29 використовується MediaStore."
             )
             Button(onClick = { onScanMedia(MediaCategory.PHOTOS) }) {
                 Text("Перевірити фото")
@@ -165,9 +172,11 @@ fun DeviceInfoScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
             Text("Системні налаштування", style = MaterialTheme.typography.titleLarge)
-            Text("WRITE_SETTINGS потребує окремого дозволу спеціального доступу в налаштуваннях Android. Доступний лише allowlist Settings.System; Secure/Global не змінюються. Shizuku та Device Owner не обходять обмеження прошивки.")
+            Text("WRITE_SETTINGS потребує окремого дозволу спеціального доступу в налаштуваннях Android. Доступний лише allowlist Settings.System; Secure/Global не змінюються. Shizuku та Device Owner не обходять обмеження прошивки. TransferKit не виконує Device Owner provisioning; на новому пристрої воно може вимагати заводського скидання.")
             Button(onClick = onScanSettings) { Text("Перевірити доступність налаштувань") }
             Text(settingsStatus, style = MaterialTheme.typography.bodyMedium)
+            Button(onClick = onRequestShizukuPermission) { Text("Перевірити та дозволити Shizuku") }
+            Text(shizukuStatus, style = MaterialTheme.typography.bodyMedium)
 
             Spacer(modifier = Modifier.height(12.dp))
             Text("Підготовка маніфесту", style = MaterialTheme.typography.titleLarge)

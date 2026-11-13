@@ -20,6 +20,30 @@ data class ShizukuProbe(
     val elevatedOperationsImplemented: Boolean = false,
 )
 
+enum class ShizukuPermissionRequestResult {
+    REQUEST_SENT,
+    UNSUPPORTED_API,
+    SERVICE_NOT_RUNNING,
+    PERMISSION_ALREADY_GRANTED,
+    LEGACY_SERVER_UNSUPPORTED,
+    REQUEST_FAILED,
+}
+
+internal fun shizukuPermissionRequestMessage(result: ShizukuPermissionRequestResult): String = when (result) {
+    ShizukuPermissionRequestResult.REQUEST_SENT ->
+        "Підтверди запит у Shizuku. TransferKit не виконує privileged-команд."
+    ShizukuPermissionRequestResult.UNSUPPORTED_API ->
+        "Підтримка Shizuku недоступна на цьому Android API."
+    ShizukuPermissionRequestResult.SERVICE_NOT_RUNNING ->
+        "Shizuku не запущено. Запусти його окремо; TransferKit не стартує сервіс сам."
+    ShizukuPermissionRequestResult.PERMISSION_ALREADY_GRANTED ->
+        "Дозвіл Shizuku вже надано, але elevated settings операції ще не реалізовані."
+    ShizukuPermissionRequestResult.LEGACY_SERVER_UNSUPPORTED ->
+        "Версія сервера Shizuku застаріла для permission API. Онови Shizuku."
+    ShizukuPermissionRequestResult.REQUEST_FAILED ->
+        "Не вдалося надіслати запит Shizuku; перевір стан його сервісу."
+}
+
 /** Read-only availability probe. This bridge does not start a shell or execute privileged work. */
 class ShizukuBridge {
     fun probe(): ShizukuProbe {
@@ -57,6 +81,25 @@ class ShizukuBridge {
                 serviceRunning = true,
                 permissionGranted = false,
             )
+        }
+    }
+
+    /** Requests only Shizuku app authorization; it does not execute any privileged operation. */
+    fun requestPermission(requestCode: Int): ShizukuPermissionRequestResult {
+        val current = probe()
+        return when (current.state) {
+            ShizukuState.UNSUPPORTED_API -> ShizukuPermissionRequestResult.UNSUPPORTED_API
+            ShizukuState.SERVICE_NOT_RUNNING -> ShizukuPermissionRequestResult.SERVICE_NOT_RUNNING
+            ShizukuState.AVAILABLE -> ShizukuPermissionRequestResult.PERMISSION_ALREADY_GRANTED
+            ShizukuState.PERMISSION_REQUIRED -> {
+                if (runCatching { Shizuku.isPreV11() }.getOrDefault(true)) {
+                    ShizukuPermissionRequestResult.LEGACY_SERVER_UNSUPPORTED
+                } else if (runCatching { Shizuku.requestPermission(requestCode) }.isSuccess) {
+                    ShizukuPermissionRequestResult.REQUEST_SENT
+                } else {
+                    ShizukuPermissionRequestResult.REQUEST_FAILED
+                }
+            }
         }
     }
 

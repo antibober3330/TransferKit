@@ -7,6 +7,8 @@ import com.transferkit.client.protocol.IncomingFinishFrame
 import com.transferkit.client.protocol.IncomingManifestFrame
 import com.transferkit.client.protocol.ProtocolCodec
 import com.transferkit.client.receiver.AndroidTransferReceiver
+import com.transferkit.client.receiver.DurableTransferProgress
+import android.os.SystemClock
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
@@ -16,7 +18,12 @@ import java.util.UUID
  * Transport-neutral adapter from bounded TKMF/TKCH frames to the durable receiver. It owns neither
  * a socket nor pairing/authentication; callers must provide an authenticated transport session.
  */
-class ReceiverStreamHandler(private val receiver: AndroidTransferReceiver) {
+class ReceiverStreamHandler(
+    private val receiver: AndroidTransferReceiver,
+    private val onDurableProgress: ((DurableTransferProgress) -> Unit)? = null,
+) {
+    private var lastProgressReadAtMillis = Long.MIN_VALUE
+
     /** Reads and responds to frames until EOF or the receiver rejects a frame. */
     fun serve(input: InputStream, output: OutputStream, authenticatedTransferId: UUID? = null) {
         var manifestAccepted = false
@@ -32,6 +39,7 @@ class ReceiverStreamHandler(private val receiver: AndroidTransferReceiver) {
                     manifestAccepted = acknowledgement.status == ACK_OK
                     output.write(ProtocolCodec.encodeAcknowledgement(acknowledgement))
                     output.flush()
+                    if (manifestAccepted) reportProgress(acknowledgement.transferId, force = true)
                     if (acknowledgement.status != ACK_OK) return
                 }
                 is IncomingChunkFrame -> {
@@ -44,6 +52,7 @@ class ReceiverStreamHandler(private val receiver: AndroidTransferReceiver) {
                     }
                     output.write(ProtocolCodec.encodeAcknowledgement(acknowledgement))
                     output.flush()
+                    if (acknowledgement.status == ACK_OK) decoded?.header?.transferId?.let(::reportProgress)
                     if (acknowledgement.status != ACK_OK) return
                 }
                 is IncomingFinishFrame -> {
@@ -66,10 +75,24 @@ class ReceiverStreamHandler(private val receiver: AndroidTransferReceiver) {
                     }
                     output.write(response)
                     output.flush()
+                    if (authenticatedTransferId == frame.transferId && manifestAccepted) {
+                        reportProgress(frame.transferId, force = true)
+                    }
                     return
                 }
             }
         }
+    }
+
+    private fun reportProgress(transferId: UUID, force: Boolean = false) {
+        val callback = onDurableProgress ?: return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && lastProgressReadAtMillis != Long.MIN_VALUE &&
+            now - lastProgressReadAtMillis < PROGRESS_READ_INTERVAL_MS
+        ) return
+        val progress = receiver.durableProgress(transferId) ?: return
+        lastProgressReadAtMillis = now
+        runCatching { callback(progress) }
     }
 
     private fun rejectedChunk(decoded: com.transferkit.client.protocol.DecodedChunk?, status: Int): Acknowledgement =
@@ -94,5 +117,6 @@ class ReceiverStreamHandler(private val receiver: AndroidTransferReceiver) {
         const val RECEIPT_INCOMPLETE = 1
         const val RECEIPT_TRANSFER_MISMATCH = 2
         const val RECEIPT_FAILED = 3
+        const val PROGRESS_READ_INTERVAL_MS = 1_000L
     }
 }

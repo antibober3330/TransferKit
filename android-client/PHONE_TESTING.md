@@ -49,6 +49,17 @@ $serial = "SERIAL_FROM_DEVICES_LIST"
 
 `install-apk.bat` вимагає serial, якщо ADB бачить кілька телефонів; інсталяція `-r` оновлює існуючий пакет і зберігає його app data. Щоб бачити екран застосунку, телефон має бути розблокований. Дозволи на SMS, call log, contacts чи інші категорії надавайте вручну лише для конкретного тесту, який ви обрали.
 
+### Xiaomi / Redmi: `INSTALL_FAILED_USER_RESTRICTED`
+
+На деяких MIUI/HyperOS збірках USB debugging не дає права встановлювати APK через ADB. Це окреме системне обмеження, а не помилка збірки чи підпису APK.
+
+1. Розблокуйте телефон і підтвердьте будь-який системний запит інсталятора на екрані.
+2. Перевірте **Налаштування → Програми → Дозволи → Встановлення через USB**. У версіях MIUI, де цей пункт перенесено, він може бути в **Параметри розробника**. Назви й розташування залежать від версії; дивіться також [офіційний посібник MIUI 13](https://alsgp0.fds.api.xiaomi.com/gl123/Generic%20User%20Guide%20for%20MIUI%2013/Generic%20User%20Guide%20for%20MIUI%2013.pdf).
+3. Якщо перемикач доступний, увімкніть його та повторіть `install-apk.bat SERIAL` або `adb -s SERIAL install -r app.apk`.
+4. Якщо MIUI вимагає Mi/Xiaomi account і перемикач не вмикається, зупиніться: у цьому проєкті немає команди обходу цієї системної вимоги. Для тесту можна передати APK у Downloads та відкрити його через Files; Android покаже штатне підтвердження і, за потреби, окремий дозвіл **Install unknown apps** для Files.
+
+На Redmi 12 `23053RN02Y` (Android 15, MIUI `V816`) SDK ADB 1.0.41 побачив телефон, але `adb install -r` повернув `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`. Після цієї спроби користувач установив APK вручну з Files; `pm path`, `versionName=0.1.0-alpha.2`, `versionCode=3` і запуск `MainActivity` підтверджено через SDK ADB. ADB install route залишається заблокованим MIUI. Один раз використовуємо SDK `platform-tools\adb.exe` для всіх команд: Windows ADB 1.0.40 може перезапустити ADB server 1.0.41 і тимчасово обірвати Wi-Fi ADB.
+
 ## Wi-Fi ADB для моніторингу під час кабельного тесту
 
 Android 11+ підтримує Wireless debugging. Телефон і ПК мають бути в одній Wi-Fi мережі. Спарте кожен телефон один раз:

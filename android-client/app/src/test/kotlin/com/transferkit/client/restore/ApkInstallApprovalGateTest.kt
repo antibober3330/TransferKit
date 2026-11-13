@@ -36,6 +36,28 @@ class ApkInstallApprovalGateTest {
     }
 
     @Test
+    fun missingInstallPermissionDoesNotConsumeApkConfirmation() {
+        assertTrue(
+            gate.consumeForInstall(null, item, canRequestPackageInstalls = false) ==
+                ApkInstallApprovalDecision.NOT_APPROVED,
+        )
+        val approval = gate.approveAfterUserConfirmation(item, confirmedByUser = true)!!
+
+        assertTrue(
+            gate.consumeForInstall(approval, item, canRequestPackageInstalls = false) ==
+                ApkInstallApprovalDecision.INSTALL_PERMISSION_REQUIRED,
+        )
+        assertTrue(
+            gate.consumeForInstall(approval, item, canRequestPackageInstalls = true) ==
+                ApkInstallApprovalDecision.APPROVED,
+        )
+        assertTrue(
+            gate.consumeForInstall(approval, item, canRequestPackageInstalls = true) ==
+                ApkInstallApprovalDecision.NOT_APPROVED,
+        )
+    }
+
+    @Test
     fun approvalExpiresAndCannotBeUsedForAnotherTransfer() {
         val expired = gate.approveAfterUserConfirmation(item, confirmedByUser = true)!!
         now += 100L

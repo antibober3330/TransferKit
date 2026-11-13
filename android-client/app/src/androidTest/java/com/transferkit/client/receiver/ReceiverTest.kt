@@ -3,20 +3,24 @@ package com.transferkit.client.receiver
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteConstraintException
-import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.security.MessageDigest
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 import java.util.zip.CRC32
+import com.transferkit.client.protocol.ProtocolCodec
+import com.transferkit.client.transport.ReceiverStreamHandler
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.int
+import com.transferkit.client.protocol.AckKind
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -80,8 +84,8 @@ class ReceiverTest {
         val summary = active.availableRestoreTransfers().single()
         assertEquals(transferId.toString(), summary.transferId)
         assertEquals(1, summary.verifiedItemCount)
-        assertEquals(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) 1 else 0, summary.restorableItemCount)
-        assertEquals(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) payload.size.toLong() else 0L, summary.restorableBytes)
+        assertEquals(1, summary.restorableItemCount)
+        assertEquals(payload.size.toLong(), summary.restorableBytes)
 
         val candidate = active.verifiedRestoreItems(transferId.toString()).single()
         assertEquals(transferId.toString(), candidate.transferId)
@@ -91,6 +95,67 @@ class ReceiverTest {
         assertEquals(payload.size.toLong(), candidate.sizeBytes)
         assertEquals(sha256(payload), candidate.sha256)
         assertArrayEquals(payload, candidate.payloadFile.readBytes())
+    }
+
+    @Test
+    fun receiverStreamReportsOnlyDurableCumulativeBytesAndFinalReceiptProgress() {
+        val payload = "durable progress fixture".toByteArray()
+        val transferId = UUID.randomUUID()
+        val input = ByteArrayOutputStream().apply {
+            write(ProtocolCodec.encodeManifestFrame(manifest(transferId, payload)))
+            write(chunk(transferId, 0, 1, payload))
+            write(ProtocolCodec.encodeFinishRequest(transferId))
+        }.toByteArray()
+        val reports = mutableListOf<DurableTransferProgress>()
+        val active = newReceiver()
+
+        val output = ByteArrayOutputStream()
+        ReceiverStreamHandler(active) { reports += it }.serve(
+            ByteArrayInputStream(input),
+            output,
+            transferId,
+        )
+
+        val response = ByteArrayInputStream(output.toByteArray())
+        assertEquals(0, ProtocolCodec.readAcknowledgement(response, AckKind.MANIFEST).status)
+        assertEquals(0, ProtocolCodec.readAcknowledgement(response, AckKind.CHUNK).status)
+        val receipt = ProtocolCodec.readReceiptResponse(response)
+        assertEquals(transferId, receipt.transferId)
+        assertEquals(0, receipt.status)
+        assertTrue(receipt.payload.isNotEmpty())
+        assertTrue("Initial and final durable progress callbacks must be reported", reports.size >= 2)
+        assertEquals(0L, reports.first().receivedBytes)
+        assertEquals(payload.size.toLong(), reports.last().receivedBytes)
+        assertTrue(reports.zipWithNext().all { (previous, next) -> next.receivedBytes >= previous.receivedBytes })
+        assertTrue(reports.all { it.transferId == transferId.toString() && it.totalBytes == payload.size.toLong() })
+        assertEquals(0, reports.first().percent)
+        assertEquals(100, reports.last().percent)
+    }
+
+    @Test
+    fun durableProgressUsesCheckpointOffsetRatherThanRetriedChunkCount() {
+        val payload = "abcdefghij".toByteArray()
+        val transferId = UUID.randomUUID()
+        val firstHalf = payload.copyOfRange(0, 5)
+        val active = newReceiver()
+        assertEquals(ACK_OK, active.acceptManifest(manifest(transferId, payload)).status)
+
+        val before = active.durableProgress(transferId)!!
+        assertEquals(0L, before.receivedBytes)
+        assertEquals(10L, before.totalBytes)
+        assertEquals(0, before.percent)
+
+        val firstChunk = chunk(transferId, 0, 2, firstHalf)
+        assertEquals(ACK_OK, active.acceptChunk(firstChunk).status)
+        assertEquals(ACK_OK, active.acceptChunk(firstChunk).status) // Exact retry must not add bytes.
+        val partial = active.durableProgress(transferId)!!
+        assertEquals(5L, partial.receivedBytes)
+        assertEquals(50, partial.percent)
+
+        assertEquals(ACK_OK, active.acceptChunk(chunk(transferId, 1, 2, payload.copyOfRange(5, 10))).status)
+        val complete = active.durableProgress(transferId)!!
+        assertEquals(10L, complete.receivedBytes)
+        assertEquals(100, complete.percent)
     }
 
     @Test

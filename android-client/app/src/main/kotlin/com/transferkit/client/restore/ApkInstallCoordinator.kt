@@ -19,6 +19,7 @@ sealed class ApkPreparationResult {
 class ApkInstallTicket internal constructor(
     val sessionId: Int,
     val transferId: String,
+    val manifestSha256: String,
     val itemId: String,
     val packageName: String,
     val expectedVersionCode: Long,
@@ -43,9 +44,15 @@ class ApkInstallCoordinator(
 
     fun prepare(item: VerifiedRestoreItem, approval: ApkInstallApproval?): ApkPreparationResult {
         if (item.categoryId != "apks") return failed(item, "UNSUPPORTED")
-        if (!approvalGate.consume(approval, item)) return failed(item, "USER_DECLINED")
-        if (!appContext.packageManager.canRequestPackageInstalls()) {
-            return ApkPreparationResult.NeedsUserAction("INSTALL_CONFIRMATION_REQUIRED")
+        when (approvalGate.consumeForInstall(
+            approval = approval,
+            item = item,
+            canRequestPackageInstalls = appContext.packageManager.canRequestPackageInstalls(),
+        )) {
+            ApkInstallApprovalDecision.INSTALL_PERMISSION_REQUIRED ->
+                return ApkPreparationResult.NeedsUserAction("INSTALL_CONFIRMATION_REQUIRED")
+            ApkInstallApprovalDecision.NOT_APPROVED -> return failed(item, "USER_DECLINED")
+            ApkInstallApprovalDecision.APPROVED -> Unit
         }
         val packageName = item.metadata["package_name"] as? String
         val versionCode = (item.metadata["version_code"] as? Number)?.toLong()
@@ -86,6 +93,7 @@ class ApkInstallCoordinator(
                 ApkInstallTicket(
                     sessionId = createdSessionId,
                     transferId = item.transferId,
+                    manifestSha256 = item.manifestSha256,
                     itemId = item.itemId,
                     packageName = packageName,
                     expectedVersionCode = versionCode,
@@ -94,7 +102,11 @@ class ApkInstallCoordinator(
             )
         } catch (_: SecurityException) {
             sessionId?.let { runCatching { packageInstaller.openSession(it).use { session -> session.abandon() } } }
-            ApkPreparationResult.NeedsUserAction("INSTALL_CONFIRMATION_REQUIRED")
+            if (!appContext.packageManager.canRequestPackageInstalls()) {
+                ApkPreparationResult.NeedsUserAction("INSTALL_CONFIRMATION_REQUIRED")
+            } else {
+                failed(item, "PERMISSION_DENIED")
+            }
         } catch (_: IOException) {
             sessionId?.let { runCatching { packageInstaller.openSession(it).use { session -> session.abandon() } } }
             failed(item, "TARGET_WRITE_FAILED")

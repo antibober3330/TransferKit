@@ -2,7 +2,6 @@ package com.transferkit.client.receiver
 
 import android.content.Context
 import android.database.sqlite.SQLiteException
-import android.os.Build
 import com.transferkit.client.protocol.AckKind
 import com.transferkit.client.protocol.Acknowledgement
 import com.transferkit.client.protocol.MAX_MANIFEST_BYTES
@@ -10,6 +9,7 @@ import com.transferkit.client.protocol.MAX_UINT32
 import com.transferkit.client.protocol.ProtocolCodec
 import com.transferkit.client.protocol.ProtocolException
 import com.transferkit.client.restore.VerifiedRestoreItem
+import com.transferkit.client.restore.isFileMediaRestoreCategory
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -45,7 +45,25 @@ data class ReceivedTransferSummary(
     val restoredItemCount: Int,
     val unavailableVerifiedItemCount: Int,
     val failedItemCount: Int,
+    val restorableApkItemCount: Int = 0,
+    val restorableApkBytes: Long = 0L,
+    val restorableContactItemCount: Int = 0,
+    val restorableContactBytes: Long = 0L,
+    val restorableCalendarItemCount: Int = 0,
+    val restorableCalendarBytes: Long = 0L,
 )
+
+/** Cumulative bytes durable in receiver checkpoints; retries never inflate this value. */
+data class DurableTransferProgress(
+    val transferId: String,
+    val receivedBytes: Long,
+    val totalBytes: Long,
+) {
+    val percent: Int
+        get() = if (totalBytes <= 0L) 0 else ((receivedBytes.toDouble() / totalBytes) * 100.0)
+            .toInt()
+            .coerceIn(0, 100)
+}
 
 /** App-private receiver core. A transport owns the socket and sends ACKs returned here. */
 class AndroidTransferReceiver(context: Context) : Closeable {
@@ -259,6 +277,19 @@ class AndroidTransferReceiver(context: Context) : Closeable {
         return finalFile(row).takeIf(File::isFile)
     }
 
+    /** Reads aggregate progress from durable item cursors, not from incoming frames or retry count. */
+    @Synchronized
+    fun durableProgress(transferId: UUID): DurableTransferProgress? {
+        val transferIdText = transferId.toString()
+        val transfer = database.transfer(transferIdText) ?: return null
+        val manifest = manifestFor(transfer)
+        val total = manifest.items.values.fold(0L) { sum, item -> sum.saturatingAdd(item.sizeBytes) }
+        val received = database.itemsForTransfer(transferIdText).fold(0L) { sum, item ->
+            sum.saturatingAdd(item.nextByteOffset.coerceIn(0L, item.declaredSize))
+        }.coerceAtMost(total)
+        return DurableTransferProgress(transferIdText, received, total)
+    }
+
     /** Lists completed transfers and aggregate restore counts without exposing filenames or payload. */
     @Synchronized
     fun availableRestoreTransfers(): List<ReceivedTransferSummary> {
@@ -270,9 +301,10 @@ class AndroidTransferReceiver(context: Context) : Closeable {
             val verified = rows.filter { it.status == ReceiverDatabase.ITEM_VERIFIED }
             val restored = verified.count { it.restoreStatus == ReceiverDatabase.ITEM_RESTORED }
             val pendingRestore = verified.filter { it.restoreStatus != ReceiverDatabase.ITEM_RESTORED }
-            val restorable = pendingRestore.filter {
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && it.categoryId in RESTORABLE_MEDIA_CATEGORIES
-            }
+            val restorable = pendingRestore.filter { isFileMediaRestoreCategory(it.categoryId) }
+            val restorableApks = pendingRestore.filter { it.categoryId == "apks" }
+            val restorableContacts = pendingRestore.filter { it.categoryId == "contacts" }
+            val restorableCalendar = pendingRestore.filter { it.categoryId == "calendar" }
             ReceivedTransferSummary(
                 transferId = transfer.transferId,
                 manifestSha256 = transfer.manifestSha256,
@@ -280,8 +312,14 @@ class AndroidTransferReceiver(context: Context) : Closeable {
                 restorableItemCount = restorable.size,
                 restorableBytes = restorable.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
                 restoredItemCount = restored,
-                unavailableVerifiedItemCount = verified.size - restored - restorable.size,
+                unavailableVerifiedItemCount = verified.size - restored - restorable.size - restorableApks.size - restorableContacts.size - restorableCalendar.size,
                 failedItemCount = rows.count { it.status == ReceiverDatabase.ITEM_FAILED },
+                restorableApkItemCount = restorableApks.size,
+                restorableApkBytes = restorableApks.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
+                restorableContactItemCount = restorableContacts.size,
+                restorableContactBytes = restorableContacts.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
+                restorableCalendarItemCount = restorableCalendar.size,
+                restorableCalendarBytes = restorableCalendar.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
             )
         }
     }
@@ -640,7 +678,6 @@ class AndroidTransferReceiver(context: Context) : Closeable {
         const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
         val ZERO_HASH = ByteArray(4)
         val TERMINAL_ITEM_STATUSES = setOf(ReceiverDatabase.ITEM_VERIFIED, ReceiverDatabase.ITEM_FAILED)
-        val RESTORABLE_MEDIA_CATEGORIES = setOf("photos", "videos", "audio", "downloads")
         val RECEIPT_JSON = Json { encodeDefaults = true; prettyPrint = false }
     }
 }

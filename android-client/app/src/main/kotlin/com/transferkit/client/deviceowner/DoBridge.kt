@@ -8,8 +8,8 @@ data class DeviceOwnerProbe(
     val reasonCode: String,
     /** Informational only: TransferKit never provisions itself or initiates a factory reset. */
     val provisioningWarning: String =
-        "Device Owner потребує окремого enterprise provisioning; для нового пристрою це зазвичай " +
-            "означає factory reset. TransferKit не запускає це самостійно.",
+        "Device Owner потребує окремого корпоративного налаштування; на новому пристрої це може " +
+            "вимагати скидання до заводських налаштувань. TransferKit не запускає це самостійно.",
     val policyOperationsImplemented: Boolean = false,
 )
 

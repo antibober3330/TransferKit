@@ -5,7 +5,14 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.database.SQLException
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.Uri
+import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.contract.ActivityResultContracts.RequestPermission
 import androidx.activity.compose.setContent
@@ -13,17 +20,35 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import java.io.IOException
 import java.util.concurrent.Executors
 import com.transferkit.client.receiver.AndroidTransferReceiver
 import com.transferkit.client.receiver.ReceivedTransferSummary
+import com.transferkit.client.restore.LegacyMediaRestorer
 import com.transferkit.client.restore.MediaStoreRestorer
+import com.transferkit.client.restore.ContactsRestorer
+import com.transferkit.client.restore.CalendarRestorer
+import com.transferkit.client.restore.CalendarDestination
+import com.transferkit.client.restore.CalendarDestinationDialog
 import com.transferkit.client.restore.RestoreApproval
 import com.transferkit.client.restore.RestoreApprovalGate
 import com.transferkit.client.restore.RestoreItemStatus
 import com.transferkit.client.restore.RestorerRegistry
+import com.transferkit.client.restore.RestoreContext
 import com.transferkit.client.restore.RestoreConfirmationDialog
 import com.transferkit.client.restore.VerifiedRestoreItem
+import com.transferkit.client.restore.ApkInstallApproval
+import com.transferkit.client.restore.ApkInstallCoordinator
+import com.transferkit.client.restore.ApkInstallStatusReceiver
+import com.transferkit.client.restore.ApkInstallTicket
+import com.transferkit.client.restore.ApkPreparationResult
+import com.transferkit.client.restore.ApkRestoreReviewDialog
+import com.transferkit.client.restore.ApkRestoreViewModel
+import com.transferkit.client.restore.ApkInstallConfirmationDialog
+import com.transferkit.client.shizuku.ShizukuBridge
+import com.transferkit.client.shizuku.shizukuPermissionRequestMessage
+import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
     private val mediaExecutor = Executors.newSingleThreadExecutor()
@@ -37,8 +62,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var settingsProvider: SettingsProvider
     private lateinit var transferReceiver: AndroidTransferReceiver
     private lateinit var restorerRegistry: RestorerRegistry
+    private lateinit var apkInstallCoordinator: ApkInstallCoordinator
+    private val apkRestoreViewModel: ApkRestoreViewModel by viewModels()
+    private val shizukuBridge = ShizukuBridge()
     private var pendingCategory: MediaCategory? = null
     private var pendingOriginalPhotoMetadata = false
+    private var pendingRestoreReviewTransferId: String? = null
+    private var pendingContactRestoreTransferId: String? = null
+    private var pendingCalendarRestoreTransferId: String? = null
     private val selectedManifestSources = linkedMapOf<String, ManifestCategorySource>()
     private lateinit var sourceDeviceInfo: DeviceInfo
     private var preparedManifestBundle: TransferManifestBundle? = null
@@ -46,6 +77,7 @@ class MainActivity : ComponentActivity() {
     private var manifestSelectionCount by mutableStateOf(0)
     private var manifestBuildInProgress by mutableStateOf(false)
     private var showRestoreInbox by mutableStateOf(false)
+    private var showTransferProgress by mutableStateOf(false)
     private var adbReceiverStatus by mutableStateOf(TransferForegroundService.STATUS_STOPPED)
     private var adbSourceStatus by mutableStateOf(TransferForegroundService.STATUS_STOPPED)
     private var restoreInboxLoading by mutableStateOf(false)
@@ -53,6 +85,12 @@ class MainActivity : ComponentActivity() {
     private var restoreInboxStatus by mutableStateOf("Список отриманих передач ще не оновлено.")
     private var receivedTransfers by mutableStateOf<List<ReceivedTransferSummary>>(emptyList())
     private var selectedRestoreItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
+    private var pendingCalendarItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
+    private var calendarDestinations by mutableStateOf<List<CalendarDestination>>(emptyList())
+    private var selectedCalendarDestination: CalendarDestination? = null
+    private var selectedApkItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
+    private var selectedApkItem by mutableStateOf<VerifiedRestoreItem?>(null)
+    private var apkResultReceiverRegistered = false
     private var manifestStatus by mutableStateOf("Маніфест ще не підготовлено.")
     private var mediaStatus by mutableStateOf("Медіатеку ще не перевірено.")
     private var contactsStatus by mutableStateOf("Контакти ще не перевірено.")
@@ -61,6 +99,43 @@ class MainActivity : ComponentActivity() {
     private var callLogStatus by mutableStateOf("Журнал дзвінків ще не перевірено.")
     private var apkStatus by mutableStateOf("Застосунки ще не перевірено.")
     private var settingsStatus by mutableStateOf("Налаштування ще не перевірено.")
+    private var shizukuStatus by mutableStateOf("Shizuku не запитувався.")
+
+    private val apkInstallResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            restoreInboxStatus = ApkInstallStatusReceiver.takePendingResult(context)
+                ?: intent.getStringExtra(ApkInstallStatusReceiver.EXTRA_RESULT_TEXT)
+                ?: "Android завершив дію з APK."
+            refreshRestoreInbox(preserveStatus = true)
+        }
+    }
+
+    private val apkInstallSettingsRequest = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val item = apkRestoreViewModel.pendingItem
+        val approval = apkRestoreViewModel.pendingApproval
+        if (item == null || approval == null) return@registerForActivityResult
+        if (packageManager.canRequestPackageInstalls()) {
+            prepareAndInstallApk(item, approval)
+        } else {
+            apkRestoreViewModel.approvalGate.revoke(approval)
+            apkRestoreViewModel.pendingApproval = null
+            apkRestoreViewModel.pendingItem = null
+            restoreInboxStatus = "Дозвіл на встановлення APK не надано; дані передачі не змінено."
+        }
+    }
+
+    private val shizukuPermissionResultListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
+        if (requestCode == SHIZUKU_PERMISSION_REQUEST_CODE) {
+            shizukuStatus = if (grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                "Дозвіл Shizuku надано. Це не активує ще не реалізовані privileged settings операції."
+            } else {
+                "Дозвіл Shizuku не надано; налаштування пристрою не змінювалися."
+            }
+            scanSettings()
+        }
+    }
 
     private val mediaPermissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -129,8 +204,56 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val legacyRestorePermissionRequest = registerForActivityResult(RequestPermission()) { granted ->
+        val transferId = pendingRestoreReviewTransferId
+        pendingRestoreReviewTransferId = null
+        if (granted && transferId != null &&
+            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            prepareRestoreReview(transferId)
+        } else if (transferId != null) {
+            restoreInboxStatus = "Дозвіл на запис публічних медіафайлів не надано; дані не змінено."
+        }
+    }
+
+    private val contactsRestorePermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        val transferId = pendingContactRestoreTransferId
+        pendingContactRestoreTransferId = null
+        if (transferId != null &&
+            checkSelfPermission(android.Manifest.permission.READ_CONTACTS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.WRITE_CONTACTS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            prepareRestoreReview(transferId)
+        } else if (transferId != null) {
+            restoreInboxStatus = "Дозволи на читання та запис контактів не надано; контакти не змінено."
+        }
+    }
+
+    private val calendarRestorePermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        val transferId = pendingCalendarRestoreTransferId
+        pendingCalendarRestoreTransferId = null
+        if (transferId != null &&
+            checkSelfPermission(android.Manifest.permission.READ_CALENDAR) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.WRITE_CALENDAR) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            prepareRestoreReview(transferId)
+        } else if (transferId != null) {
+            restoreInboxStatus = "Дозволи на читання та запис календаря не надано; події не змінено."
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionResultListener)
         mediaProvider = MediaProvider(applicationContext)
         contactsProvider = ContactsProvider(applicationContext)
         calendarProvider = CalendarProvider(applicationContext)
@@ -139,9 +262,21 @@ class MainActivity : ComponentActivity() {
         apkProvider = ApkProvider(applicationContext)
         settingsProvider = SettingsProvider(applicationContext)
         transferReceiver = AndroidTransferReceiver(applicationContext)
+        apkInstallCoordinator = ApkInstallCoordinator(applicationContext, apkRestoreViewModel.approvalGate)
         adbReceiverStatus = TransferForegroundService.receiverStatus(this)
         adbSourceStatus = TransferForegroundService.sourceStatus(this)
-        restorerRegistry = RestorerRegistry(MediaStoreRestorer(applicationContext, restoreApprovalGate))
+        val mediaRestorer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStoreRestorer(applicationContext, restoreApprovalGate)
+        } else {
+            LegacyMediaRestorer(applicationContext, restoreApprovalGate)
+        }
+        restorerRegistry = RestorerRegistry(
+            listOf(
+                mediaRestorer,
+                ContactsRestorer(applicationContext, restoreApprovalGate),
+                CalendarRestorer(applicationContext, restoreApprovalGate),
+            ),
+        )
         val deviceInfo = DeviceInfoProvider.read(applicationContext)
         sourceDeviceInfo = deviceInfo
         setContent {
@@ -154,21 +289,76 @@ class MainActivity : ComponentActivity() {
                         restoring = restoreInProgress,
                         onBack = {
                             selectedRestoreItems = emptyList()
+                            pendingCalendarItems = emptyList()
+                            calendarDestinations = emptyList()
+                            selectedCalendarDestination = null
                             showRestoreInbox = false
                         },
                         onRefresh = { refreshRestoreInbox() },
-                        onReview = ::prepareRestoreReview,
+                        onReview = ::requestRestoreReview,
+                        onReviewApks = ::prepareApkReview,
                     )
+                    if (pendingCalendarItems.isNotEmpty() && calendarDestinations.isNotEmpty()) {
+                        CalendarDestinationDialog(
+                            destinations = calendarDestinations,
+                            onSelected = { destinationId ->
+                                selectedCalendarDestination = calendarDestinations.firstOrNull { it.id == destinationId }
+                                selectedRestoreItems = pendingCalendarItems
+                                pendingCalendarItems = emptyList()
+                                calendarDestinations = emptyList()
+                                restoreInboxStatus = "Календар призначення вибрано. Переглянь підтвердження перед записом подій."
+                            },
+                            onDismiss = {
+                                pendingCalendarItems = emptyList()
+                                calendarDestinations = emptyList()
+                                selectedCalendarDestination = null
+                                restoreInboxStatus = "Вибір календаря скасовано; жодної події не записано."
+                            },
+                        )
+                    }
                     if (selectedRestoreItems.isNotEmpty()) {
                         RestoreConfirmationDialog(
                             transferId = selectedRestoreItems.first().transferId,
                             manifestSha256 = selectedRestoreItems.first().manifestSha256,
                             items = selectedRestoreItems,
+                            calendarDestination = selectedCalendarDestination,
                             approvalGate = restoreApprovalGate,
                             onApproved = ::beginRestore,
-                            onDismiss = { selectedRestoreItems = emptyList() },
+                            onDismiss = {
+                                selectedRestoreItems = emptyList()
+                                selectedCalendarDestination = null
+                            },
                         )
                     }
+                    if (selectedApkItems.isNotEmpty()) {
+                        ApkRestoreReviewDialog(
+                            items = selectedApkItems,
+                            onInstall = { item ->
+                                selectedApkItems = emptyList()
+                                selectedApkItem = item
+                            },
+                            onDismiss = { selectedApkItems = emptyList() },
+                        )
+                    }
+                    selectedApkItem?.let { item ->
+                        ApkInstallConfirmationDialog(
+                            item = item,
+                            approvalGate = apkRestoreViewModel.approvalGate,
+                            onApproved = { approval ->
+                                selectedApkItem = null
+                                apkRestoreViewModel.pendingItem = item
+                                apkRestoreViewModel.pendingApproval = approval
+                                prepareAndInstallApk(item, approval)
+                            },
+                            onDismiss = { selectedApkItem = null },
+                        )
+                    }
+                } else if (showTransferProgress) {
+                    TransferProgressScreen(
+                        onBack = { showTransferProgress = false },
+                        onPause = {},
+                        onCancel = {},
+                    )
                 } else {
                     DeviceInfoScreen(
                         deviceInfo = deviceInfo,
@@ -176,6 +366,7 @@ class MainActivity : ComponentActivity() {
                             showRestoreInbox = true
                             refreshRestoreInbox()
                         },
+                        onOpenTransferProgress = { showTransferProgress = true },
                         mediaStatus = mediaStatus,
                         onScanMedia = ::requestMediaAccess,
                         onScanPhotosWithOriginalMetadata = ::requestPhotosWithOriginalMetadata,
@@ -192,6 +383,8 @@ class MainActivity : ComponentActivity() {
                         onScanApks = ::scanApks,
                         settingsStatus = settingsStatus,
                         onScanSettings = ::scanSettings,
+                        shizukuStatus = shizukuStatus,
+                        onRequestShizukuPermission = ::requestShizukuPermission,
                         manifestSelectionCount = manifestSelectionCount,
                         manifestStatus = manifestStatus,
                         manifestBuildInProgress = manifestBuildInProgress,
@@ -210,10 +403,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (!apkResultReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                apkInstallResultReceiver,
+                IntentFilter(ApkInstallStatusReceiver.ACTION_RESULT),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            apkResultReceiverRegistered = true
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         adbReceiverStatus = TransferForegroundService.receiverStatus(this)
         adbSourceStatus = TransferForegroundService.sourceStatus(this)
+        ApkInstallStatusReceiver.takePendingResult(this)?.let { restoreInboxStatus = it }
+        if (showRestoreInbox) refreshRestoreInbox(preserveStatus = true)
+    }
+
+    override fun onStop() {
+        if (apkResultReceiverRegistered) {
+            runCatching { unregisterReceiver(apkInstallResultReceiver) }
+            apkResultReceiverRegistered = false
+        }
+        super.onStop()
+    }
+
+    private fun requestShizukuPermission() {
+        shizukuStatus = shizukuPermissionRequestMessage(
+            shizukuBridge.requestPermission(SHIZUKU_PERMISSION_REQUEST_CODE),
+        )
     }
 
     private fun startUsbSource() {
@@ -286,37 +508,230 @@ class MainActivity : ComponentActivity() {
         mediaExecutor.execute {
             val result = runCatching {
                 transferReceiver.verifiedRestoreItems(transferId).filter {
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
-                        it.categoryId in setOf("photos", "videos", "audio", "downloads")
+                    it.categoryId in setOf("photos", "videos", "audio", "downloads", "contacts", "calendar")
                 }
             }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 restoreInboxLoading = false
                 val items = result.getOrDefault(emptyList())
+                if (result.isSuccess && items.any { it.categoryId == "contacts" } &&
+                    (checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                        checkSelfPermission(android.Manifest.permission.WRITE_CONTACTS) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED)
+                ) {
+                    pendingContactRestoreTransferId = transferId
+                    restoreInboxStatus = "Для запису та перевірки контактів потрібні дозволи читання й запису; запитую їх перед підтвердженням відновлення."
+                    contactsRestorePermissionRequest.launch(
+                        arrayOf(
+                            android.Manifest.permission.READ_CONTACTS,
+                            android.Manifest.permission.WRITE_CONTACTS,
+                        ),
+                    )
+                    return@runOnUiThread
+                }
+                if (result.isSuccess && items.any { it.categoryId == "calendar" } &&
+                    (checkSelfPermission(android.Manifest.permission.READ_CALENDAR) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                        checkSelfPermission(android.Manifest.permission.WRITE_CALENDAR) !=
+                        android.content.pm.PackageManager.PERMISSION_GRANTED)
+                ) {
+                    pendingCalendarRestoreTransferId = transferId
+                    restoreInboxStatus = "Для відновлення календаря потрібні дозволи читання й запису; запитую їх перед вибором календаря."
+                    calendarRestorePermissionRequest.launch(
+                        arrayOf(android.Manifest.permission.READ_CALENDAR, android.Manifest.permission.WRITE_CALENDAR),
+                    )
+                    return@runOnUiThread
+                }
+                if (result.isSuccess && items.any { it.categoryId == "calendar" }) {
+                    loadCalendarDestinations(items)
+                    return@runOnUiThread
+                }
                 selectedRestoreItems = items
                 restoreInboxStatus = when {
                     result.isFailure -> "Не вдалося відкрити перевірені items передачі."
-                    items.isEmpty() -> "У передачі немає перевірених медіафайлів, які підтримує цей Android API."
-                    else -> "Підготовлено для перегляду медіафайлів: ${items.size}. Запис ще не почався."
+                    items.isEmpty() -> "У передачі немає перевірених медіафайлів, контактів або календарних подій для цього Android API."
+                    else -> "Підготовлено для перегляду медіафайлів, контактів і календаря: ${items.size}. Запис ще не почався."
                 }
             }
         }
     }
 
-    private fun beginRestore(approval: RestoreApproval) {
-        val items = selectedRestoreItems
-        selectedRestoreItems = emptyList()
-        if (items.isEmpty()) {
-            restoreApprovalGate.revoke(approval)
+    private fun loadCalendarDestinations(items: List<VerifiedRestoreItem>) {
+        restoreInboxLoading = true
+        restoreInboxStatus = "Шукаю календарі, у які цьому застосунку дозволено запис…"
+        mediaExecutor.execute {
+            val result = runCatching { CalendarRestorer.listWritableCalendars(applicationContext) }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                restoreInboxLoading = false
+                val destinations = result.getOrDefault(emptyList())
+                if (result.isFailure || destinations.isEmpty()) {
+                    restoreInboxStatus = if (result.isFailure) {
+                        "Не вдалося прочитати доступні календарі; жодної події не записано."
+                    } else {
+                        "Немає календаря з дозволом на запис. Створи або увімкни календар призначення й повтори спробу."
+                    }
+                } else {
+                    pendingCalendarItems = items
+                    calendarDestinations = destinations
+                    restoreInboxStatus = "Вибери календар призначення. Передача почнеться лише після окремого підтвердження."
+                }
+            }
+        }
+    }
+
+    private fun prepareApkReview(transferId: String) {
+        if (restoreInboxLoading || restoreInProgress) return
+        restoreInboxLoading = true
+        restoreInboxStatus = "Перевіряю отримані APK перед переглядом…"
+        mediaExecutor.execute {
+            val result = runCatching {
+                transferReceiver.verifiedRestoreItems(transferId).filter { it.categoryId == "apks" }
+            }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                restoreInboxLoading = false
+                val items = result.getOrDefault(emptyList())
+                selectedApkItems = items
+                restoreInboxStatus = when {
+                    result.isFailure -> "Не вдалося відкрити перевірені APK цієї передачі."
+                    items.isEmpty() -> "У передачі немає перевірених APK для встановлення."
+                    else -> "Знайдено перевірених APK: ${items.size}. Нічого не встановлено."
+                }
+            }
+        }
+    }
+
+    private fun prepareAndInstallApk(item: VerifiedRestoreItem, approval: ApkInstallApproval) {
+        if (restoreInProgress || isDestroyed) {
+            apkRestoreViewModel.approvalGate.revoke(approval)
             return
         }
         restoreInProgress = true
-        restoreInboxStatus = "Відновлюю та перевіряю записані медіафайли…"
+        restoreInboxStatus = "Повторно перевіряю SHA-256 APK перед створенням install session…"
         mediaExecutor.execute {
+            val result = runCatching { apkInstallCoordinator.prepare(item, approval) }
+                .getOrElse {
+                    ApkPreparationResult.Failed(
+                        com.transferkit.client.restore.RestoreItemResult(
+                            itemId = item.itemId,
+                            status = RestoreItemStatus.FAILED,
+                            errorReason = "RESTORE_FAILED",
+                        ),
+                    )
+                }
+            runOnUiThread {
+                if (isDestroyed) {
+                    apkRestoreViewModel.approvalGate.revoke(approval)
+                    return@runOnUiThread
+                }
+                restoreInProgress = false
+                when (result) {
+                    is ApkPreparationResult.Ready -> commitApkInstall(result.ticket)
+                    is ApkPreparationResult.NeedsUserAction -> requestUnknownAppInstallPermission(item, approval)
+                    is ApkPreparationResult.Failed -> {
+                        apkRestoreViewModel.approvalGate.revoke(approval)
+                        apkRestoreViewModel.pendingApproval = null
+                        apkRestoreViewModel.pendingItem = null
+                        restoreInboxStatus = when (result.result.errorReason) {
+                            "SHA256_MISMATCH" -> "APK не пройшов перевірку SHA-256; джерело не встановлено."
+                            "INVALID_MANIFEST" -> "Метадані APK некоректні; файл не встановлено."
+                            "PERMISSION_DENIED" -> "Android відхилив підготовку APK; дані передачі збережені."
+                            "USER_DECLINED" -> "Потрібне повторне підтвердження саме цього APK."
+                            else -> "Не вдалося підготувати APK (${result.result.errorReason ?: "RESTORE_FAILED"}); дані передачі збережені."
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun requestUnknownAppInstallPermission(item: VerifiedRestoreItem, approval: ApkInstallApproval) {
+        val targetPackageName = item.metadata["package_name"] as? String
+        if (targetPackageName.isNullOrBlank()) {
+            apkRestoreViewModel.approvalGate.revoke(approval)
+            apkRestoreViewModel.pendingApproval = null
+            apkRestoreViewModel.pendingItem = null
+            restoreInboxStatus = "Не вдалося визначити пакет; нічого не встановлено."
+            return
+        }
+        apkRestoreViewModel.pendingItem = item
+        apkRestoreViewModel.pendingApproval = approval
+        restoreInboxStatus = "Дозволь TransferKit встановлювати APK у системних налаштуваннях; підтвердження цього APK збережене на 5 хвилин."
+        val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+            .setData(Uri.parse("package:${this.packageName}"))
+        runCatching { apkInstallSettingsRequest.launch(settingsIntent) }
+            .onFailure {
+                apkRestoreViewModel.approvalGate.revoke(approval)
+                apkRestoreViewModel.pendingApproval = null
+                apkRestoreViewModel.pendingItem = null
+                restoreInboxStatus = "Не вдалося відкрити системний дозвіл; нічого не встановлено."
+            }
+    }
+
+    private fun commitApkInstall(ticket: ApkInstallTicket) {
+        apkRestoreViewModel.pendingItem = null
+        apkRestoreViewModel.pendingApproval = null
+        restoreInProgress = true
+        restoreInboxStatus = "Передаю один перевірений APK до Android PackageInstaller; Android може попросити окреме підтвердження."
+        val statusPendingIntent = ApkInstallStatusReceiver.createStatusPendingIntent(this, ticket)
+        mediaExecutor.execute {
+            val committed = runCatching {
+                apkInstallCoordinator.commit(ticket, statusPendingIntent.intentSender)
+            }
+            if (committed.isFailure) {
+                apkInstallCoordinator.abandon(ticket)
+                statusPendingIntent.cancel()
+            }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                restoreInProgress = false
+                restoreInboxStatus = if (committed.isSuccess) {
+                    "Android отримав один APK. Завершення буде показане після системного install callback і перевірки версії."
+                } else {
+                    "Не вдалося передати APK до PackageInstaller; отриманий файл збережено для повторної спроби."
+                }
+            }
+        }
+    }
+
+    private fun requestRestoreReview(transferId: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingRestoreReviewTransferId = transferId
+            restoreInboxStatus = "Потрібен дозвіл Android для запису медіафайлів у публічні папки."
+            legacyRestorePermissionRequest.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            return
+        }
+        prepareRestoreReview(transferId)
+    }
+
+    private fun beginRestore(approval: RestoreApproval) {
+        val items = selectedRestoreItems
+        val calendarDestinationId = selectedCalendarDestination?.id
+        selectedRestoreItems = emptyList()
+        if (items.isEmpty()) {
+            restoreApprovalGate.revoke(approval)
+            selectedCalendarDestination = null
+            return
+        }
+        restoreInProgress = true
+        restoreInboxStatus = "Відновлюю вибрані дані та перевіряю результат…"
+        mediaExecutor.execute {
+            val orderedItems = CalendarRestorer.parentFirstCalendarOrder(items)
             val results = try {
-                items.map { item ->
-                    runCatching { restorerRegistry.restore(item, approval) }.getOrElse {
+                orderedItems.map { item ->
+                    runCatching {
+                        restorerRegistry.restore(
+                            item,
+                            approval,
+                            RestoreContext(calendarDestinationId = calendarDestinationId),
+                        )
+                    }.getOrElse {
                         com.transferkit.client.restore.RestoreItemResult(
                             itemId = item.itemId,
                             status = RestoreItemStatus.FAILED,
@@ -327,7 +742,7 @@ class MainActivity : ComponentActivity() {
             } finally {
                 restoreApprovalGate.revoke(approval)
             }
-            val cleanupPending = items.zip(results).count { (item, result) ->
+            val cleanupPending = orderedItems.zip(results).count { (item, result) ->
                 result.status == RestoreItemStatus.RESTORED &&
                     !runCatching { transferReceiver.recordPostVerifiedRestore(item) }.getOrDefault(false)
             }
@@ -344,6 +759,7 @@ class MainActivity : ComponentActivity() {
                 refreshRestoreInbox(preserveStatus = true)
             }
         }
+        selectedCalendarDestination = null
     }
 
     private fun requestMediaAccess(category: MediaCategory) {
@@ -589,12 +1005,17 @@ class MainActivity : ComponentActivity() {
                     !access.shizukuPermissionGranted -> "Shizuku permission не надано"
                     else -> "Shizuku доступ підтверджений, але elevated settings операції ще не реалізовані"
                 }
-                val ownerStatus = if (access.deviceOwner) "Device Owner активний" else "Device Owner відсутній"
+                val ownerStatus = if (access.deviceOwner) {
+                    "Device Owner активний для TransferKit"
+                } else {
+                    "${access.deviceOwnerReasonCode}; ${access.deviceOwnerProvisioningWarning}"
+                }
                 val summary = "Прочитано ${access.publicSettingsRead}/${access.publicSettingsTotal} " +
                     "публічних ключів Settings.System; WRITE_SETTINGS approval: " +
                     "${if (access.systemWriteApproved) "є" else "немає"}; $shizukuStatus; $ownerStatus. " +
                     "Settings.Secure/Global і будь-які зміни тут не виконуються."
                 runOnUiThread {
+                    this@MainActivity.shizukuStatus = shizukuStatus
                     rememberManifestSource(
                         ManifestCategorySource(
                             "settings",
@@ -611,6 +1032,10 @@ class MainActivity : ComponentActivity() {
                 runOnUiThread { settingsStatus = "Android заборонив читання частини налаштувань." }
             }
         }
+    }
+
+    private companion object {
+        const val SHIZUKU_PERMISSION_REQUEST_CODE = 0x544b
     }
 
     private fun scanMedia(category: MediaCategory, includeOriginalPhotoMetadata: Boolean = false) {
@@ -800,6 +1225,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionResultListener)
         mediaExecutor.shutdownNow()
         discardPreparedManifest()
         runCatching { transferReceiver.close() }

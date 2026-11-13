@@ -6,6 +6,22 @@ This file tracks user-visible and protocol-level changes. The current project is
 
 Changes for the next version will be recorded here.
 
+## [0.1.0-alpha.2] - 2026-11-13
+
+Development snapshot published to `main`; this is not a release candidate and has no Git tag.
+
+### Included
+
+- Android Calendar restore with explicit writable-calendar selection, strict payload validation, SHA-256 checking, idempotent event markers, and provider readback for events, attendees, and reminders.
+- Calendar restore confirmation repeats the selected destination and warns that account synchronization follows the calendar's settings.
+- Calendar recurrence masters are ordered before their exceptions during a restore batch.
+- Synthetic Samsung Calendar Provider acceptance and regression coverage for strict payload parsing and recurrence ordering.
+- Documented the Redmi/MIUI USB-install restriction and supported manual installer fallback; ADB installation is blocked by `INSTALL_FAILED_USER_RESTRICTED`, while manual Files installation and alpha.2 app launch were confirmed.
+
+### Remaining release gates
+
+Calendar destination UI still needs physical acceptance on another reachable device; recurrence exception behavior needs wider provider coverage; the project has additional incomplete restore, transport, Recovery, duplicate-inventory, and release-readiness work.
+
 ## [0.1.0-alpha.1] - 2026-11-12
 
 Initial versioned development snapshot.

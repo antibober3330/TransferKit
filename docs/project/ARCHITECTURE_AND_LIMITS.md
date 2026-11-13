@@ -64,7 +64,7 @@ Python API може робити local archive export/import; парольний
 
 | Tier | Реальна межа |
 |---|---|
-| A — photos/videos/audio | Джерельний Android MediaStore та Windows file manifest є. Документи/Downloads доступні лише через SAF selection. Android destination MediaStore restore є на API 29+; API 26–28 і SAF destination ще не підтримуються. |
+| A — photos/videos/audio | Джерельний Android MediaStore та Windows file manifest є. Документи/Downloads на джерелі доступні лише через SAF selection. Android destination MediaStore restore є на API 29+, а окремий legacy public-directory restore для API 26–28 уже реалізований, але ще не прийнятий на старому фізичному пристрої. SAF destination ще не підтримується. |
 | B — contacts/calendar | Source providers/serializers є. Destination account/calendar restore і destination readback ще не реалізовані. |
 | C — SMS/call log | Source read залежить від фактично наданих hard-restricted permissions/installer і політик. MMS і destination restore не реалізовані. Не запитувати Android default app roles і не обходити restrictions. |
 | D — APK | Джерельний scan обмежений видимими single-file APK; системні/split/unreadable packages пропускаються. PackageInstaller scaffold є, але user picker/status wiring і повний APK restore flow відсутні. |

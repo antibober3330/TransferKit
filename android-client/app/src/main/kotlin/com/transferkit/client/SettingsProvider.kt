@@ -39,6 +39,8 @@ data class SettingsAccessProbe(
     val shizukuServiceAvailable: Boolean,
     val shizukuPermissionGranted: Boolean,
     val deviceOwner: Boolean,
+    val deviceOwnerReasonCode: String,
+    val deviceOwnerProvisioningWarning: String,
     val secureAndGlobalReadImplemented: Boolean = false,
     val elevatedSettingsOperationsImplemented: Boolean = false,
 )
@@ -67,7 +69,7 @@ class SettingsProvider(context: Context) {
             if (value != null) values[key] = value
         }
 
-        val deviceOwner = deviceOwnerBridge.probe().activeForThisApp
+        val ownerProbe = deviceOwnerBridge.probe()
         val shizuku = shizukuBridge.probe()
         val item = SettingsSnapshotItem(canonicalSettingsBytes(values), values.size)
         return SettingsScanResult(
@@ -78,7 +80,9 @@ class SettingsProvider(context: Context) {
                 systemWriteApproved = Settings.System.canWrite(appContext),
                 shizukuServiceAvailable = shizuku.serviceRunning,
                 shizukuPermissionGranted = shizuku.permissionGranted,
-                deviceOwner = deviceOwner,
+                deviceOwner = ownerProbe.activeForThisApp,
+                deviceOwnerReasonCode = ownerProbe.reasonCode,
+                deviceOwnerProvisioningWarning = ownerProbe.provisioningWarning,
             ),
         )
     }

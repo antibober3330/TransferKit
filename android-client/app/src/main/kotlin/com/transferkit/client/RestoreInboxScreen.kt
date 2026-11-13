@@ -30,6 +30,7 @@ fun RestoreInboxScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onReview: (String) -> Unit,
+    onReviewApks: (String) -> Unit,
 ) {
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -56,6 +57,20 @@ fun RestoreInboxScreen(
                         }
                         Text("Медіафайлів для відновлення: ${transfer.restorableItemCount}")
                         Text("Обсяг: ${formatRestoreBytes(transfer.restorableBytes)}")
+                        Text("Контактів для локального відновлення: ${transfer.restorableContactItemCount}")
+                        if (transfer.restorableContactItemCount > 0) {
+                            Text("Контакти буде збережено лише на цьому пристрої; синхронізація з Google або іншим акаунтом не виконується.")
+                            Text("Обсяг контактних даних: ${formatRestoreBytes(transfer.restorableContactBytes)}")
+                        }
+                        Text("Календарних подій для відновлення: ${transfer.restorableCalendarItemCount}")
+                        if (transfer.restorableCalendarItemCount > 0) {
+                            Text("Перед записом можна буде явно вибрати календар і акаунт призначення.")
+                            Text("Обсяг календарних даних: ${formatRestoreBytes(transfer.restorableCalendarBytes)}")
+                        }
+                        Text("Перевірених APK для встановлення: ${transfer.restorableApkItemCount}")
+                        if (transfer.restorableApkItemCount > 0) {
+                            Text("Обсяг APK: ${formatRestoreBytes(transfer.restorableApkBytes)}")
+                        }
                         if (transfer.unavailableVerifiedItemCount > 0) {
                             Text("Інші перевірені категорії поки не підтримуються: ${transfer.unavailableVerifiedItemCount}")
                         }
@@ -64,10 +79,16 @@ fun RestoreInboxScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Button(
-                            enabled = transfer.restorableItemCount > 0 && !restoring && !loading,
+                            enabled = (transfer.restorableItemCount > 0 || transfer.restorableContactItemCount > 0 || transfer.restorableCalendarItemCount > 0) && !restoring && !loading,
                             onClick = { onReview(transfer.transferId) },
                         ) {
-                            Text("Переглянути й відновити медіафайли")
+                            Text("Переглянути й відновити медіафайли, контакти та календар")
+                        }
+                        Button(
+                            enabled = transfer.restorableApkItemCount > 0 && !restoring && !loading,
+                            onClick = { onReviewApks(transfer.transferId) },
+                        ) {
+                            Text("Переглянути й встановити APK")
                         }
                     }
                 }

@@ -16,6 +16,7 @@ fun RestoreConfirmationDialog(
     transferId: String,
     manifestSha256: String,
     items: List<VerifiedRestoreItem>,
+    calendarDestination: CalendarDestination? = null,
     approvalGate: RestoreApprovalGate,
     onApproved: (RestoreApproval) -> Unit,
     onDismiss: () -> Unit,
@@ -41,7 +42,21 @@ fun RestoreConfirmationDialog(
                     append(String.format(Locale.getDefault(), "%.1f МБ", totalBytes / (1024.0 * 1024.0)))
                     append(").\nКатегорії: ")
                     append(categories.joinToString().ifBlank { "не вибрано" })
-                    append(".\nПісля успішної post-перевірки TransferKit видалить власні тимчасові копії саме цих файлів; якщо файл не відновиться, його копія залишиться для повтору.")
+                    append(".")
+                    if (items.any { it.categoryId == "contacts" }) {
+                        append("\nКонтакти будуть створені в локальному сховищі цього телефона й не синхронізуватимуться з акаунтом.")
+                    }
+                    if (items.any { it.categoryId == "calendar" }) {
+                        val destination = calendarDestination
+                        append("\nКалендар призначення: ")
+                        append(destination?.displayName?.ifBlank { "без назви" } ?: "не вибрано")
+                        if (destination != null && destination.accountName.isNotBlank()) {
+                            append(" · ")
+                            append(destination.accountName)
+                        }
+                        append(". Події можуть синхронізуватися за налаштуваннями цього календаря.")
+                    }
+                    append("\nПісля успішної post-перевірки TransferKit видалить власні тимчасові копії саме цих елементів; якщо відновлення не пройде перевірку, копія залишиться для повтору.")
                     append("\nПродовжити?")
                     if (approvalError) append("\nНе вдалося створити підтвердження. Перевір маніфест і вибір.")
                 },

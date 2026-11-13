@@ -48,6 +48,14 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@style/Theme.TransferKit">
+        <!-- Protected by a system permission; Shizuku/Sui uses this provider to deliver its Binder. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -56,6 +64,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".restore.ApkInstallStatusReceiver"
+            android:exported="false" />
 
         <service
             android:name=".TransferForegroundService"
