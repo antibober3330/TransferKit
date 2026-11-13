@@ -4,7 +4,7 @@ This file tracks user-visible and protocol-level changes. The current project is
 
 ## [0.1.0-alpha.4] - 2026-11-13
 
-Development snapshot for source publication; no release tag. This remains an alpha and is not a production release.
+Source-only development snapshot published to the private GitHub `main` as commit `1fd4a63c29c316e1ef6668d83abb8bfbbc053557`; no release tag. This remains an alpha and is not a production release.
 
 ### Fixed
 
