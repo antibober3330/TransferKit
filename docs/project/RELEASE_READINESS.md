@@ -27,7 +27,7 @@ Source-only snapshot alpha.7 (`versionCode=8`) опубліковано у пр�
 
 Source-only snapshot alpha.8 (`versionCode=9`) опубліковано у приватний GitHub `main` комітом `28e5148afad4fe99cf722b004f1b1ee872f8750a` після alpha.7; push був fast-forward, попередню історію збережено. Android unit suite **117/117 passed**, Python suite **152/152 passed**, debug та AndroidTest APK збираються. Фізичний consent callback не перевірявся, оскільки телефони зараз недоступні; Shizuku manager на попередніх пристроях був відсутній. У Git не включалися APK/build artifacts; release tag не створювався.
 
-Source-only alpha.15 (`versionCode=16`) містить Python Space Preflight calculator для provider-supplied staging/restore estimates, batch/streaming/drop-largest/insufficient outcomes і fail-closed поведінки для unknown estimates. Python suite — **165/165 passed**. Release gate для фізичного переносу лишається відкритим; Android storage probing та UI/protocol integration ще не реалізовані. Alpha.14 лишається останнім опублікованим snapshot до завершення пункту 154; alpha.15 підготовлена без APK/build artifacts і без release tag.
+Source-only alpha.15 (`versionCode=16`) з Python Space Preflight calculator опублікована у приватний GitHub `main` commit-ом `e3fd34a63defa2baef7944d607aa15bdf9811ce8`. Python suite — **165/165 passed**; Android unit XML — **144 passed, 0 failures/errors**, debug та AndroidTest assemblies успішні. Release gate для фізичного переносу лишається відкритим; Android storage probing та UI/protocol integration ще не реалізовані. APK/build artifacts і release tag до snapshot не включали.
 
 Source-only alpha.13 (`versionCode=14`) опубліковано у приватний GitHub `main` комітом `57ace6aa086c0129e0d4d04c5bc37a4070c1e228` після alpha.12 (`f70f8f9298ef74e583a37093fe9b1fe11d787ee5`); push пройшов fast-forward, remote HEAD звірено. Durable progress observer ізольовано: помилка checkpoint read або UI callback не перериває transport handler після ACK; додано три JVM regressions для failure recovery і throttle. Android unit **142/142 passed**, Python **152/152 passed**, debug та AndroidTest APK зібрані. Жодні телефони не використовувалися. Source-only без APK/build artifacts та release tag.
 
@@ -228,6 +228,10 @@ Page-scoped keep-awake and dimmer interaction passed **1/1 on A72/API 34 and 1/1
 ## Space Preflight calculator (2026-11-14)
 
 Пункт 109 реалізований як чистий Python calculator у `transferkit/space_preflight.py`: provider може задавати staging та restore оцінки окремо, batch використовує суму обох, streaming — restore total плюс найбільший staging item, а Drop-Largest за O(n log n) обирає максимальну за кількістю підмножину за умовою `restore_sum + max(staging) <= safe_available`. Невідома оцінка не вважається нулем і блокує автоматичне рішення. 13 targeted regressions і повний Python suite **165/165 passed**; Android unit XML — **144 passed, 0 failures/errors**, debug та AndroidTest APK assemblies успішні. Телефони не використовувались. Цей модуль поки не інтегрований з Android `StorageManager`, SpaceReport/wire negotiation чи UI; ці роботи лишаються відкритими.
+
+## Alpha.15 source-only publication (2026-11-14)
+
+`0.1.0-alpha.15` (Android `versionCode=16`) опубліковано у приватний GitHub `main` fast-forward commit-ом `e3fd34a63defa2baef7944d607aa15bdf9811ce8` після `71c91055343d57e5305d48290415757fa41bb628`; remote HEAD звірено з опублікованим commit. Snapshot містить 9 source/doc files, без APK/AAB/build/cache artifacts і відомих secret-pattern збігів. Python — 165/165; Android unit XML — 144 passed, 0 failures/errors; debug та AndroidTest assemblies успішні. Release tag не створювався.
 
 ## Alpha.14 source-only snapshot (2026-11-14)
 
