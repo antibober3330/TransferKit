@@ -35,19 +35,21 @@ data class ApkInstallCallbackResult(
  * APK-only install primitive. The caller must obtain a distinct confirmation for every APK,
  * provide a status IntentSender, and wait for [complete] before recording RESTORED.
  */
-class ApkInstallCoordinator(
-    context: Context,
+class ApkInstallCoordinator internal constructor(
+    private val installPlatform: ApkInstallPlatform,
     private val approvalGate: ApkInstallApprovalGate,
 ) {
-    private val appContext = context.applicationContext
-    private val packageInstaller = appContext.packageManager.packageInstaller
+    constructor(context: Context, approvalGate: ApkInstallApprovalGate) : this(
+        AndroidApkInstallPlatform(context.applicationContext),
+        approvalGate,
+    )
 
     fun prepare(item: VerifiedRestoreItem, approval: ApkInstallApproval?): ApkPreparationResult {
         if (item.categoryId != "apks") return failed(item, "UNSUPPORTED")
         when (approvalGate.consumeForInstall(
             approval = approval,
             item = item,
-            canRequestPackageInstalls = appContext.packageManager.canRequestPackageInstalls(),
+            canRequestPackageInstalls = installPlatform.canRequestPackageInstalls(),
         )) {
             ApkInstallApprovalDecision.INSTALL_PERMISSION_REQUIRED ->
                 return ApkPreparationResult.NeedsUserAction("INSTALL_CONFIRMATION_REQUIRED")
@@ -66,15 +68,9 @@ class ApkInstallCoordinator(
 
         var sessionId: Int? = null
         return try {
-            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
-            params.setAppPackageName(packageName)
-            params.setSize(item.sizeBytes)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
-            }
-            val createdSessionId = packageInstaller.createSession(params)
+            val createdSessionId = installPlatform.createSession(packageName, item.sizeBytes)
             sessionId = createdSessionId
-            packageInstaller.openSession(createdSessionId).use { session ->
+            installPlatform.openSession(createdSessionId).use { session ->
                 val output = session.openWrite("base.apk", 0L, item.sizeBytes)
                 val copied = item.payloadFile.inputStream().use { input ->
                     output.use { target -> copyAndDigest(input, target, session) }
@@ -101,24 +97,24 @@ class ApkInstallCoordinator(
                 ),
             )
         } catch (_: SecurityException) {
-            sessionId?.let { runCatching { packageInstaller.openSession(it).use { session -> session.abandon() } } }
-            if (!appContext.packageManager.canRequestPackageInstalls()) {
+            sessionId?.let { runCatching { installPlatform.openSession(it).use { session -> session.abandon() } } }
+            if (!runCatching { installPlatform.canRequestPackageInstalls() }.getOrDefault(false)) {
                 ApkPreparationResult.NeedsUserAction("INSTALL_CONFIRMATION_REQUIRED")
             } else {
                 failed(item, "PERMISSION_DENIED")
             }
         } catch (_: IOException) {
-            sessionId?.let { runCatching { packageInstaller.openSession(it).use { session -> session.abandon() } } }
+            sessionId?.let { runCatching { installPlatform.openSession(it).use { session -> session.abandon() } } }
             failed(item, "TARGET_WRITE_FAILED")
         } catch (_: Exception) {
-            sessionId?.let { runCatching { packageInstaller.openSession(it).use { session -> session.abandon() } } }
+            sessionId?.let { runCatching { installPlatform.openSession(it).use { session -> session.abandon() } } }
             failed(item, "RESTORE_FAILED")
         }
     }
 
     /** Commits only a previously hash-verified ticket; Android may still show its own confirmation UI. */
     fun commit(ticket: ApkInstallTicket, statusReceiver: IntentSender) {
-        packageInstaller.openSession(ticket.sessionId).use { session -> session.commit(statusReceiver) }
+        installPlatform.openSession(ticket.sessionId).use { session -> session.commit(statusReceiver) }
     }
 
     /** Call from the app's explicit PackageInstaller status receiver. */
@@ -127,12 +123,25 @@ class ApkInstallCoordinator(
             PackageInstaller.EXTRA_STATUS,
             PackageInstaller.STATUS_FAILURE,
         )
-        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+        val userAction = if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
             @Suppress("DEPRECATION")
-            val userAction = statusIntent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+            statusIntent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+        } else {
+            null
+        }
+        return complete(ticket, status, userAction)
+    }
+
+    /** Status policy is kept separate from Intent parsing so success/failure can be regression tested on the JVM. */
+    internal fun complete(
+        ticket: ApkInstallTicket,
+        status: Int,
+        userActionIntent: Intent? = null,
+    ): ApkInstallCallbackResult {
+        if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
             return ApkInstallCallbackResult(
                 itemResult = null,
-                userActionIntent = userAction,
+                userActionIntent = userActionIntent,
             )
         }
         if (status != PackageInstaller.STATUS_SUCCESS) {
@@ -141,14 +150,7 @@ class ApkInstallCoordinator(
             )
         }
         return try {
-            @Suppress("DEPRECATION")
-            val installed = appContext.packageManager.getPackageInfo(ticket.packageName, 0)
-            val installedVersion = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                installed.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                installed.versionCode.toLong()
-            }
+            val installedVersion = installPlatform.installedVersionCode(ticket.packageName)
             if (installedVersion != ticket.expectedVersionCode) {
                 ApkInstallCallbackResult(
                     RestoreItemResult(ticket.itemId, RestoreItemStatus.FAILED, "RESTORE_FAILED"),
@@ -166,7 +168,7 @@ class ApkInstallCoordinator(
     }
 
     fun abandon(ticket: ApkInstallTicket) {
-        runCatching { packageInstaller.openSession(ticket.sessionId).use { session -> session.abandon() } }
+        runCatching { installPlatform.openSession(ticket.sessionId).use { session -> session.abandon() } }
     }
 
     private fun failed(item: VerifiedRestoreItem, reason: String, integrity: Boolean = false) =
@@ -182,7 +184,7 @@ class ApkInstallCoordinator(
         val PACKAGE_NAME = Regex("^[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)+$")
         val SHA256 = Regex("^[a-f0-9]{64}$")
 
-        fun copyAndDigest(input: InputStream, output: OutputStream, session: PackageInstaller.Session): Pair<Long, String> {
+        fun copyAndDigest(input: InputStream, output: OutputStream, session: ApkInstallSession): Pair<Long, String> {
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
             var size = 0L
@@ -228,4 +230,68 @@ class ApkInstallCoordinator(
 
         fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
+}
+
+/** Narrow PackageInstaller boundary used to test the APK integrity/approval pipeline on the JVM. */
+internal interface ApkInstallPlatform {
+    fun canRequestPackageInstalls(): Boolean
+    fun createSession(packageName: String, sizeBytes: Long): Int
+    fun openSession(sessionId: Int): ApkInstallSession
+    fun installedVersionCode(packageName: String): Long?
+}
+
+internal interface ApkInstallSession : AutoCloseable {
+    fun openWrite(name: String, offsetBytes: Long, lengthBytes: Long): OutputStream
+    fun openRead(name: String): InputStream
+    fun fsync(output: OutputStream)
+    fun commit(statusReceiver: IntentSender)
+    fun abandon()
+    override fun close()
+}
+
+private class AndroidApkInstallPlatform(context: Context) : ApkInstallPlatform {
+    private val packageManager = context.packageManager
+    private val packageInstaller = packageManager.packageInstaller
+
+    override fun canRequestPackageInstalls(): Boolean = packageManager.canRequestPackageInstalls()
+
+    override fun createSession(packageName: String, sizeBytes: Long): Int {
+        val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        params.setAppPackageName(packageName)
+        params.setSize(sizeBytes)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
+        }
+        return packageInstaller.createSession(params)
+    }
+
+    override fun openSession(sessionId: Int): ApkInstallSession = AndroidApkInstallSession(
+        packageInstaller.openSession(sessionId),
+    )
+
+    override fun installedVersionCode(packageName: String): Long? = try {
+        @Suppress("DEPRECATION")
+        val installed = packageManager.getPackageInfo(packageName, 0)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            installed.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            installed.versionCode.toLong()
+        }
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private class AndroidApkInstallSession(
+    private val session: PackageInstaller.Session,
+) : ApkInstallSession {
+    override fun openWrite(name: String, offsetBytes: Long, lengthBytes: Long): OutputStream =
+        session.openWrite(name, offsetBytes, lengthBytes)
+
+    override fun openRead(name: String): InputStream = session.openRead(name)
+    override fun fsync(output: OutputStream) = session.fsync(output)
+    override fun commit(statusReceiver: IntentSender) = session.commit(statusReceiver)
+    override fun abandon() = session.abandon()
+    override fun close() = session.close()
 }

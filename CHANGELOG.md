@@ -2,6 +2,21 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.7] - 2026-11-14
+
+Source-only development snapshot prepared for the private GitHub `main`; no release tag. Android `versionCode` is 8. This remains an alpha and is not a production release.
+
+### Included
+
+- Added an injectable `ApkInstallPlatform` boundary around Android `PackageInstaller` to make APK staging and callback policy deterministic in JVM tests.
+- Added 14 synthetic APK-install coordinator regressions for exact one-time approval, missing permission/retry, session creation/write/fsync/readback, payload mutation, integrity failures, installer status, and installed-version verification.
+
+### Validation and limits
+
+- Android unit suite: 115/115 passed; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded.
+- No APK content was installed in this run. Physical PackageInstaller prompt/final callback, process-death recovery, receiver-verified APK content, and APK-only source/Station flow remain open.
+- No release tag is created. This is a source-only development snapshot, not a production release.
+
 ## [0.1.0-alpha.6] - 2026-11-14
 
 Source-only development snapshot published to the private GitHub `main` as commit `462b482a45a1112ca36c6a1be1d3f02bb76a742e`; no release tag. Android `versionCode` is 7. This remains an alpha and is not a production release.

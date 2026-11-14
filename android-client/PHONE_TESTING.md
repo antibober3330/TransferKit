@@ -226,3 +226,7 @@ Introduced a narrow `LegacyMediaEnvironment` platform boundary for `LegacyMediaR
 ## ADB state after alpha.6 checks (2026-11-14)
 
 The test cleanup scripts confirmed that `com.transferkit.client` and `com.transferkit.client.test` were absent immediately after the A72/API 34 and S20/API 33 runs. A later independent `adb devices -l` returned no devices; restarting the SDK ADB server still showed an empty list. The phones were no longer reachable for another package query at that point. Reconnect them before further physical acceptance; no firmware, user data, or settings were changed by this check.
+
+## APK install coordinator deterministic regressions (2026-11-14)
+
+`ApkInstallCoordinatorTest` uses only a synthetic in-memory PackageInstaller fake and a temporary synthetic APK payload. Fourteen JVM cases cover exact approval binding and replay prevention, install-permission retry, create/write/readback/fsync behavior, same-size source mutation, payload and session readback integrity failures, invalid package/category/size, installer failure and pending-user-action results, and installed-version verification. The full Android unit suite passed **115/115**; debug and AndroidTest APKs assembled successfully. No APK was installed and no Android device state was changed. This does not replace physical acceptance of the real PackageInstaller UI/callback flow or process-death recovery. ADB currently has no reachable devices after server restart.
