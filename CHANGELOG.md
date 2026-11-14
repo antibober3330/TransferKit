@@ -2,18 +2,31 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.13] - 2026-11-14
+
+Source-only development snapshot; no release tag. Android `versionCode` is 14. This remains an alpha and is not a production release.
+
+### Android
+
+- Receiver progress notifications now treat durable checkpoint reads and UI callbacks as a best-effort observer. A progress read/notification error cannot break the authenticated receiver stream after its ACK.
+- Added three synthetic JVM regressions for checkpoint read failure recovery, callback failure isolation, and interval/forced-final throttling.
+
+### Validation
+
+- Android unit suite: 142/142 passed; debug and AndroidTest APK assemblies succeeded. No phones were used.
+
 ## [0.1.0-alpha.12] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `fa77871552eb80a310aa9d16dc0ccb3656f1c4ff`; no release tag. Android `versionCode` is 13. This remains an alpha and is not a production release.
 
 ### Android
 
-- Device Owner probing now distinguishes a failed `DevicePolicyManager` query from a confirmed non-owner state. The settings UI asks the user to retry instead of claiming Device Owner is inactive.
+- Device Owner probing distinguishes a failed `DevicePolicyManager` query from a confirmed non-owner state; the UI prompts the user to retry instead of claiming Device Owner is inactive.
 - Added three read-only JVM regressions for confirmed owner, confirmed non-owner, and unavailable status. No policy operations or provisioning were added.
 
 ### Validation
 
-- Android unit suite: 139/139 passed; debug and AndroidTest APK assemblies succeeded. No phones were used.
+- Android unit suite: 139/139 passed; debug and AndroidTest APK assemblies succeeded. Python suite: 152/152 passed. No phones were used.
 
 ## [0.1.0-alpha.11] - 2026-11-14
 

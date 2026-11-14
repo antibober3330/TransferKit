@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.12` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.12`, `versionCode=13`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.13` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.13`, `versionCode=14`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -27,7 +27,9 @@ Source-only snapshot alpha.7 (`versionCode=8`) опубліковано у пр�
 
 Source-only snapshot alpha.8 (`versionCode=9`) опубліковано у приватний GitHub `main` комітом `28e5148afad4fe99cf722b004f1b1ee872f8750a` після alpha.7; push був fast-forward, попередню історію збережено. Android unit suite **117/117 passed**, Python suite **152/152 passed**, debug та AndroidTest APK збираються. Фізичний consent callback не перевірявся, оскільки телефони зараз недоступні; Shizuku manager на попередніх пристроях був відсутній. У Git не включалися APK/build artifacts; release tag не створювався.
 
-Source-only alpha.12 (`versionCode=13`) опубліковано у приватний GitHub `main` комітом `fa77871552eb80a310aa9d16dc0ccb3656f1c4ff` після alpha.11 (`cb02e4d92965621addc1a3479d62f9673ae595d3`); push пройшов fast-forward і remote HEAD звірено. Device Owner probe тепер окремо подає `DevicePolicyManager` query failure і підтверджений non-owner result; додано три синтетичні JVM cases. Android unit **139/139 passed**, Python **152/152 passed**, debug і AndroidTest APK зібрані. Фізичного provisioning/device test не було; source-only без APK/build artifacts, release tag не створювався.
+Source-only alpha.13 (`versionCode=14`) підготовлений для пункту 048. Durable progress observer ізольовано: помилка checkpoint read або UI callback не перериває transport handler після ACK; додано три JVM regressions для failure recovery і throttle. Android unit **142/142 passed**, Python **152/152 passed**, debug та AndroidTest APK збираються. Жодні телефони не використовувалися. Alpha.12 поки лишається останнім опублікованим snapshot; alpha.13 source-only, без APK/build artifacts та release tag.
+
+Source-only alpha.12 (`versionCode=13`) опубліковано у приватний GitHub `main` комітом `fa77871552eb80a310aa9d16dc0ccb3656f1c4ff` після alpha.11 (`cb02e4d92965621addc1a3479d62f9673ae595d3`); push пройшов fast-forward і remote HEAD звірено. Device Owner probe окремо подає `DevicePolicyManager` query failure і підтверджений non-owner result; додано три синтетичні JVM cases. Android unit **139/139 passed**, Python **152/152 passed**, debug і AndroidTest APK зібрані. Фізичного provisioning/device test не було; source-only без APK/build artifacts, release tag не створювався.
 
 Source-only alpha.11 (`versionCode=12`) опубліковано у приватний GitHub `main` комітом `0c17d38dc0520a312205cfb3b9724de6cb663c00` після alpha.10 (`d76ba83301028ed7f7570c81770303d70a1413ab`); push пройшов fast-forward і remote HEAD звірено. У пункті 046 probe відрізняє помилку читання Shizuku binder/permission state від підтвердженої відсутності дозволу; помилка не запускає повторний permission prompt. Додано два synthetic JVM regressions для fail-closed поведінки. Android unit suite **136/136 passed**; Python suite **152/152 passed**; `:app:assembleDebug` і `:app:assembleDebugAndroidTest` успішні. Телефонні Shizuku consent/service acceptance не запускалися; APK/build artifacts виключені, release tag не створювався.
 

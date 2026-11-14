@@ -247,6 +247,10 @@ The Shizuku bridge now reports `SHIZUKU_STATUS_UNAVAILABLE` separately when `pin
 
 The read-only `DoBridge` now reports `DEVICE_OWNER_STATUS_UNAVAILABLE` if the `DevicePolicyManager` service/query throws, separately from a confirmed `DEVICE_OWNER_REQUIRED` result. `SettingsProvider` forwards that certainty to the UI, which asks the user to retry and retains the warning that TransferKit never provisions itself or requests a factory reset. Three synthetic JVM tests cover true, false, and unavailable results; Android unit suite **139/139 passed**, debug and AndroidTest APKs assembled. No Device Owner provisioning or phone test was performed.
 
+## Receiver progress observer isolation (2026-11-14)
+
+`ReceiverStreamHandler` delegates UI progress reporting to a best-effort `DurableProgressReporter`. Checkpoint read exceptions, absent snapshots, and notification callback exceptions are contained inside the observer and cannot escape into the authenticated data stream after an ACK. Successful reads remain throttled to one per second, while manifest/final-receipt boundary snapshots bypass the interval. Three local JVM tests cover read recovery, callback exception isolation, and throttling. Android unit suite **142/142 passed**; debug and AndroidTest APKs assembled. No phone was used.
+
 ## MediaStoreRestorer deterministic JVM regressions (2026-11-14)
 
 `MediaStoreRestorer` now receives an injectable `MediaStoreEnvironment`, leaving Android `ContentResolver`/MediaStore operations in a platform adapter. Twelve synthetic JVM cases cover approval gating, category/MIME/API routing, zero-byte payload, pending-row write/readback/publish, exact already-present retry, corrupt markers, same-size source mutation, publish failure, and cleanup. The tests caught duplicate deletion of a newly created pending row on pre-publish integrity failures; production cleanup now runs once in the shared `finally` block. Android unit suite: **134/134 passed**; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded. No phones or user media were accessed. This does not replace API 29 or OEM MediaStore acceptance.

@@ -8,7 +8,6 @@ import com.transferkit.client.protocol.IncomingManifestFrame
 import com.transferkit.client.protocol.ProtocolCodec
 import com.transferkit.client.receiver.AndroidTransferReceiver
 import com.transferkit.client.receiver.DurableTransferProgress
-import android.os.SystemClock
 import java.io.EOFException
 import java.io.InputStream
 import java.io.OutputStream
@@ -22,7 +21,10 @@ class ReceiverStreamHandler(
     private val receiver: AndroidTransferReceiver,
     private val onDurableProgress: ((DurableTransferProgress) -> Unit)? = null,
 ) {
-    private var lastProgressReadAtMillis = Long.MIN_VALUE
+    private val progressReporter = DurableProgressReporter(
+        read = receiver::durableProgress,
+        callback = onDurableProgress,
+    )
 
     /** Reads and responds to frames until EOF or the receiver rejects a frame. */
     fun serve(input: InputStream, output: OutputStream, authenticatedTransferId: UUID? = null) {
@@ -87,16 +89,8 @@ class ReceiverStreamHandler(
         }
     }
 
-    private fun reportProgress(transferId: UUID, force: Boolean = false) {
-        val callback = onDurableProgress ?: return
-        val now = SystemClock.elapsedRealtime()
-        if (!force && lastProgressReadAtMillis != Long.MIN_VALUE &&
-            now - lastProgressReadAtMillis < PROGRESS_READ_INTERVAL_MS
-        ) return
-        val progress = receiver.durableProgress(transferId) ?: return
-        lastProgressReadAtMillis = now
-        runCatching { callback(progress) }
-    }
+    private fun reportProgress(transferId: UUID, force: Boolean = false) =
+        progressReporter.report(transferId, force)
 
     private fun rejectedChunk(decoded: com.transferkit.client.protocol.DecodedChunk?, status: Int): Acknowledgement =
         if (decoded == null) {
@@ -120,6 +114,5 @@ class ReceiverStreamHandler(
         const val RECEIPT_INCOMPLETE = 1
         const val RECEIPT_TRANSFER_MISMATCH = 2
         const val RECEIPT_FAILED = 3
-        const val PROGRESS_READ_INTERVAL_MS = 1_000L
     }
 }
