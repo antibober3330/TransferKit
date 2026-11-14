@@ -2,6 +2,22 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.6] - 2026-11-14
+
+Source-only development snapshot; no release tag. Android `versionCode` is 7. This remains an alpha and is not a production release.
+
+### Included
+
+- Added a narrow `LegacyMediaEnvironment` platform boundary so Android 8–9 public-directory restore behavior can be exercised deterministically without writing to a physical device.
+- Added seven legacy-restorer regressions for permission/approval gating, verified publish and retry, SHA-256 mismatch, collision protection, unavailable storage, MediaScanner retry, and API/category routing.
+- Repeated MediaStore integrity acceptance on Samsung A72/API 34 and S20 Ultra/API 33; synthetic JPEG/MP4, exact readback, duplicate-free retry, and integrity failures passed on both.
+
+### Validation and limits
+
+- Android unit suite: 101/101 passed; debug and AndroidTest APKs build successfully.
+- Android 8–9 public-directory adapter remains physically unaccepted: these deterministic JVM tests do not emulate Android runtime permission enforcement, mounted shared storage, MediaScanner, or OEM behavior.
+- No release tag is created. Live transfer/recovery, broader restore coverage, and remaining release gates are still open.
+
 ## [0.1.0-alpha.5] - 2026-11-14
 
 Source-only development snapshot published to the private GitHub `main` as commit `b9ff696329737adfaff063ad020799797ea94a53`; no release tag. Android `versionCode` is 6. This remains an alpha and is not a production release.

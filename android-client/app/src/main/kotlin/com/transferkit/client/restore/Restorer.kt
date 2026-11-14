@@ -305,12 +305,16 @@ class MediaStoreRestorer(
 }
 
 /** Restores media to public folders on Android 8–9, where scoped MediaStore inserts do not exist. */
-class LegacyMediaRestorer(
-    context: Context,
+class LegacyMediaRestorer internal constructor(
+    private val environment: LegacyMediaEnvironment,
     private val approvalGate: RestoreApprovalGate,
-    private val mediaScanTimeoutMillis: Long = DEFAULT_MEDIA_SCAN_TIMEOUT_MILLIS,
+    private val mediaScanTimeoutMillis: Long,
 ) : CategoryRestorer {
-    private val appContext = context.applicationContext
+    constructor(
+        context: Context,
+        approvalGate: RestoreApprovalGate,
+        mediaScanTimeoutMillis: Long = DEFAULT_MEDIA_SCAN_TIMEOUT_MILLIS,
+    ) : this(AndroidLegacyMediaEnvironment(context.applicationContext), approvalGate, mediaScanTimeoutMillis)
 
     init {
         require(mediaScanTimeoutMillis > 0L) { "mediaScanTimeoutMillis must be positive" }
@@ -319,11 +323,9 @@ class LegacyMediaRestorer(
     override val categoryIds: Set<String> = setOf("photos", "videos", "audio", "downloads")
 
     override fun restore(item: VerifiedRestoreItem, approval: RestoreApproval?): RestoreItemResult {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return failure(item, "API_UNAVAILABLE")
+        if (environment.sdkInt >= Build.VERSION_CODES.Q) return failure(item, "API_UNAVAILABLE")
         if (item.categoryId !in categoryIds) return failure(item, "UNSUPPORTED")
-        if (appContext.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!environment.hasWriteExternalStoragePermission()) {
             return RestoreItemResult(item.itemId, RestoreItemStatus.USER_ACTION_REQUIRED, "WRITE_EXTERNAL_STORAGE_REQUIRED")
         }
         if (!approvalGate.consume(approval, item)) {
@@ -337,10 +339,8 @@ class LegacyMediaRestorer(
         val destination = runCatching { LegacyMediaDestination.from(item) }.getOrNull()
             ?: return failure(item, "INVALID_MANIFEST")
         return try {
-            if (Environment.getExternalStorageState() != Environment.MEDIA_MOUNTED) {
-                return failure(item, "TARGET_WRITE_FAILED")
-            }
-            val publicRoot = Environment.getExternalStorageDirectory().canonicalFile
+            if (!environment.isExternalStorageMounted()) return failure(item, "TARGET_WRITE_FAILED")
+            val publicRoot = environment.externalStorageRoot().canonicalFile
             val targetDirectory = File(publicRoot, destination.relativeDirectory).canonicalFile
             if (!targetDirectory.toPath().startsWith(publicRoot.toPath())) return failure(item, "INVALID_MANIFEST")
             if (!targetDirectory.isDirectory && !targetDirectory.mkdirs()) return failure(item, "TARGET_WRITE_FAILED")
@@ -348,7 +348,7 @@ class LegacyMediaRestorer(
             val target = File(targetDirectory, destination.displayName)
             if (target.exists()) {
                 if (!verify(target, item)) return integrityFailure(item)
-                return if (scan(target, destination.mimeType)) {
+                return if (environment.scan(target, destination.mimeType, mediaScanTimeoutMillis)) {
                     RestoreItemResult(item.itemId, RestoreItemStatus.RESTORED)
                 } else {
                     failure(item, "MEDIA_SCAN_FAILED")
@@ -380,7 +380,9 @@ class LegacyMediaRestorer(
             }
 
             if (!verify(target, item)) return integrityFailure(item)
-            if (!scan(target, destination.mimeType)) return failure(item, "MEDIA_SCAN_FAILED")
+            if (!environment.scan(target, destination.mimeType, mediaScanTimeoutMillis)) {
+                return failure(item, "MEDIA_SCAN_FAILED")
+            }
             // Read back once more after the system scanner has indexed the public destination.
             if (!verify(target, item)) return integrityFailure(item)
             RestoreItemResult(item.itemId, RestoreItemStatus.RESTORED)
@@ -393,17 +395,6 @@ class LegacyMediaRestorer(
         } catch (_: Exception) {
             failure(item, "RESTORE_FAILED")
         }
-    }
-
-    private fun scan(file: File, mimeType: String): Boolean {
-        val latch = CountDownLatch(1)
-        var scannedUri: Uri? = null
-        MediaScannerConnection.scanFile(appContext, arrayOf(file.absolutePath), arrayOf(mimeType)) { _, uri ->
-            scannedUri = uri
-            latch.countDown()
-        }
-        if (!latch.await(mediaScanTimeoutMillis, TimeUnit.MILLISECONDS)) return false
-        return scannedUri != null
     }
 
     private fun verify(file: File, item: VerifiedRestoreItem): Boolean {
@@ -466,6 +457,42 @@ class LegacyMediaRestorer(
         }
 
         fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+}
+
+/** Narrow platform boundary so legacy API behavior can be tested without changing real device state. */
+internal interface LegacyMediaEnvironment {
+    val sdkInt: Int
+    fun hasWriteExternalStoragePermission(): Boolean
+    fun isExternalStorageMounted(): Boolean
+    fun externalStorageRoot(): File
+    fun scan(file: File, mimeType: String, timeoutMillis: Long): Boolean
+}
+
+private class AndroidLegacyMediaEnvironment(
+    private val context: Context,
+) : LegacyMediaEnvironment {
+    override val sdkInt: Int
+        get() = Build.VERSION.SDK_INT
+
+    override fun hasWriteExternalStoragePermission(): Boolean =
+        context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    override fun isExternalStorageMounted(): Boolean =
+        Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED
+
+    override fun externalStorageRoot(): File = Environment.getExternalStorageDirectory()
+
+    override fun scan(file: File, mimeType: String, timeoutMillis: Long): Boolean {
+        val latch = CountDownLatch(1)
+        var scannedUri: Uri? = null
+        MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), arrayOf(mimeType)) { _, uri ->
+            scannedUri = uri
+            latch.countDown()
+        }
+        if (!latch.await(timeoutMillis, TimeUnit.MILLISECONDS)) return false
+        return scannedUri != null
     }
 }
 

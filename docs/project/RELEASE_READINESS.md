@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.5` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.5`, `versionCode=6`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.6` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.6`, `versionCode=7`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -19,7 +19,9 @@
 | Android SDK | compile/target SDK 34, min SDK 26, Build Tools 34.0.0 | `android-client/app/build.gradle.kts`, `BUILDING_AND_TESTING.md` |
 | Wire format | поточні transport/control frames — version 1 | `shared/protocol.md`, Python/Kotlin codecs |
 
-Source-only snapshot `0.1.0-alpha.5` опублікований у приватній гілці GitHub `main`, commit `b9ff696329737adfaff063ad020799797ea94a53`; Android versionCode=6. Перед commit пройшов `git diff --cached --check`; staged tree містив 56 source/config/doc files, без APK/AAB, `local.properties`, build/cache output і без відомих credential-pattern matches. Release tag не створювався; цей alpha не є production release.
+Попередній source-only snapshot `0.1.0-alpha.5` опублікований у приватній гілці GitHub `main`, commit `b9ff696329737adfaff063ad020799797ea94a53`; Android versionCode=6. Перед commit пройшов `git diff --cached --check`; staged tree містив 56 source/config/doc files, без APK/AAB, `local.properties`, build/cache output і без відомих credential-pattern matches. Release tag не створювався; цей alpha не є production release.
+
+Поточний alpha.6 candidate (`versionCode=7`) зібрано локально після version bump: Android unit suite **101/101 passed**, `:app:assembleDebug` та `:app:assembleDebugAndroidTest` успішні. Debug APK не є release build і виключений із Git.
 
 Alpha.5 є source-only development snapshot; APK цієї версії не збирався в межах публікації. Раніше зібраний alpha.4 debug APK: `android-client/app/build/outputs/apk/debug/app-debug.apk`, 9 452 756 bytes, SHA-256 `608449FC585E0FD70B72CE74C19BE9E6839849537310405A55C4F2F32547C157`; `aapt dump badging` підтвердив package `com.transferkit.client`, versionCode=5, versionName=`0.1.0-alpha.4`. Build output виключена з Git.
 
@@ -197,3 +199,12 @@ The complete `ReceiverTest` instrumentation class passed **18/18 on A72/API 34**
 ## Transfer progress keep-awake/dimmer follow-up (2026-11-14)
 
 Page-scoped keep-awake and dimmer interaction passed **1/1 on A72/API 34 and 1/1 on S20/API 33**. The test verified the window flag/brightness restore to their captured starting values after navigation; Android system brightness was not changed. APKs were removed after both runs. Point 049 still needs live receiver snapshots, rotation/process-death and external accessibility acceptance.
+
+## MediaStore integrity physical repeat (2026-11-14)
+
+`RestorerIntegrityTest` passed **5/5 on Samsung A72/API 34 and 5/5 on Samsung S20 Ultra/API 33** using only synthetic JPEG/MP4 payloads and exact random-marker cleanup. Both temporary app/test packages were uninstalled afterward. This strengthens category 045 evidence across API 33/34; it does not close API 29 acceptance or legacy public-directory API 26–28 acceptance.
+## Legacy public-directory adapter testability follow-up (2026-11-14)
+
+`LegacyMediaRestorer` now depends on a narrow `LegacyMediaEnvironment` boundary for API level, runtime permission, mounted storage/root, and MediaScanner. Seven deterministic JVM regressions passed as part of Android unit **101/101**; debug and AndroidTest APKs built successfully. They cover verified staging/publish, retry, permission-gate semantics, payload integrity, collision protection, storage-not-mounted, and scanner retry. This does not count as Android API 26–28 device acceptance; available devices are API 33/34 and the installed emulator image is API 37 only.
+
+Після cleanup test scripts SDK `adb devices -l` показав порожній список; після повторного `adb start-server` телефони не з’явилися. Під час кожного фізичного прогону cleanup перевірив відсутність app/test package відразу після uninstall; подальшу перевірку стану телефонів треба виконати після їх повторного підключення.
