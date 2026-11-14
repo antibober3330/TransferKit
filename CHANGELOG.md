@@ -4,7 +4,7 @@ This file tracks user-visible and protocol-level changes. The current project is
 
 ## [0.1.0-alpha.20] - 2026-11-14
 
-Prepared source-only development snapshot; Android `versionCode` is 21. This remains an alpha and is not a production release.
+Source-only development snapshot pushed to the private GitHub `main` branch as commit `de825c41c77cd19c43f5aaf9c4f3a2704db148c2` after `944f7add21a790c433b15644cc2656391b0c4b2f`; Android `versionCode` is 21. No release tag. This remains an alpha and is not a production release.
 
 ### Versioned Space and ItemResult frame codecs
 
