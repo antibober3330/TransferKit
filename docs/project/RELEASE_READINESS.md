@@ -19,6 +19,8 @@
 | Android SDK | compile/target SDK 34, min SDK 26, Build Tools 34.0.0 | `android-client/app/build.gradle.kts`, `BUILDING_AND_TESTING.md` |
 | Wire format | поточні transport/control frames — version 1 | `shared/protocol.md`, Python/Kotlin codecs |
 
+Source-only snapshot `0.1.0-alpha.5` опублікований у приватній гілці GitHub `main`, commit `b9ff696329737adfaff063ad020799797ea94a53`; Android versionCode=6. Перед commit пройшов `git diff --cached --check`; staged tree містив 56 source/config/doc files, без APK/AAB, `local.properties`, build/cache output і без відомих credential-pattern matches. Release tag не створювався; цей alpha не є production release.
+
 Alpha.5 є source-only development snapshot; APK цієї версії не збирався в межах публікації. Раніше зібраний alpha.4 debug APK: `android-client/app/build/outputs/apk/debug/app-debug.apk`, 9 452 756 bytes, SHA-256 `608449FC585E0FD70B72CE74C19BE9E6839849537310405A55C4F2F32547C157`; `aapt dump badging` підтвердив package `com.transferkit.client`, versionCode=5, versionName=`0.1.0-alpha.4`. Build output виключена з Git.
 
 Користувач вручну встановив цю alpha.4 на Redmi 12 (23053RN02Y) 2026-11-13; `versionCode=5`, `versionName=0.1.0-alpha.4`, а SHA-256 установленого `base.apk` збігається з локальним APK: `608449FC585E0FD70B72CE74C19BE9E6839849537310405A55C4F2F32547C157`. У Downloads залишився лише цей TransferKit APK.
