@@ -271,3 +271,7 @@ Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and
 - Existing API 29+ MediaStore adapters keep rows pending until source and destination verification and verify again after publication. API 26–28 adapters keep the verified temporary-file/rename/media-scan path.
 - Validation: ten new Kotlin unit regressions; Android unit suite 168/168; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded. No phones were used.
 - This does not yet stream received items directly into restore: the full transfer is still staged before Restore Inbox approval. The per-item wire handoff, `ItemResult` ACK, space negotiation, and interruption acceptance remain open under checklist items 116, 119–121.
+
+## Alpha.18 source-only publication (2026-11-14)
+
+`0.1.0-alpha.18` (`versionCode=19`) was pushed to private GitHub `main` as commit `76b3791226fbf9adc4cd247f271a71888f7c3e04` after `0466fc7a311099cf7931b07649efe7cee8db5cc4`. The fast-forward push succeeded and remote `refs/heads/main` was verified against local HEAD. The snapshot contains 12 source/doc/test files; APK/AAB/build/cache artifacts and known credential-pattern matches: 0. Python suite 178/178; Android unit suite 168/168; debug and AndroidTest assemblies succeeded. No release tag was created. Checklist 113 remains partial; item-level receive/restore wire handoff is not implemented.
