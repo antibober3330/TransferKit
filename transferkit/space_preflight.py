@@ -71,6 +71,76 @@ class SpacePreflightResult:
     requires_user_decision: bool
 
 
+@dataclass(frozen=True, slots=True)
+class AcceptedSpacePlan:
+    """A user-confirmed strategy and exact manifest partition, ready for protocol wiring."""
+
+    strategy: SpaceStrategy
+    kept_item_ids: tuple[str, ...]
+    skipped_item_ids: tuple[str, ...]
+    user_confirmed: bool
+
+
+class SpacePlanBlocked(ValueError):
+    """Raised when estimates or a user choice cannot safely authorize any transfer bytes."""
+
+
+def accept_space_preflight(
+    result: SpacePreflightResult,
+    manifest_item_ids: Iterable[str],
+    *,
+    user_confirmed: bool,
+    selected_strategy: SpaceStrategy | None = None,
+) -> AcceptedSpacePlan:
+    """Validate explicit approval before a planned transfer may start.
+
+    A fitting batch plan is the default. Streaming and drop-largest need an
+    explicit matching choice. Unknown estimates and insufficient space fail
+    closed. The returned kept/skipped partition always covers the manifest
+    exactly and preserves manifest order.
+    """
+
+    item_ids = tuple(manifest_item_ids)
+    if not item_ids:
+        raise ValueError("manifest item IDs must not be empty")
+    if any(not isinstance(item_id, str) or not item_id.strip() for item_id in item_ids):
+        raise ValueError("manifest item IDs must be non-empty strings")
+    if len(item_ids) != len(set(item_ids)):
+        raise ValueError("manifest item IDs must be unique")
+    if result.strategy is None or result.unknown_item_ids:
+        raise SpacePlanBlocked("space estimates are incomplete; transfer cannot be authorized")
+    if result.strategy is SpaceStrategy.INSUFFICIENT:
+        raise SpacePlanBlocked("no safe space strategy is available")
+
+    strategy = result.strategy
+    if selected_strategy is not None and selected_strategy is not strategy:
+        raise SpacePlanBlocked("selected strategy differs from the safe preflight result")
+    if strategy is not SpaceStrategy.BATCH and selected_strategy is None:
+        raise SpacePlanBlocked("streaming or drop-largest requires an explicit user choice")
+    if not user_confirmed:
+        raise SpacePlanBlocked("transfer plan has not been confirmed by the user")
+
+    expected_kept = result.kept_item_ids
+    expected_skipped = result.skipped_item_ids
+    if set(expected_kept).intersection(expected_skipped) or set(expected_kept).union(expected_skipped) != set(item_ids):
+        raise SpacePlanBlocked("preflight item partition does not match the transfer manifest")
+    if strategy in (SpaceStrategy.BATCH, SpaceStrategy.STREAMING) and expected_skipped:
+        raise SpacePlanBlocked("batch and streaming must preserve every selected manifest item")
+    if strategy is SpaceStrategy.DROP_LARGEST and not expected_kept:
+        raise SpacePlanBlocked("drop-largest has no transferable items")
+    if strategy is not SpaceStrategy.DROP_LARGEST and expected_kept != item_ids:
+        raise SpacePlanBlocked("batch and streaming item order must match the manifest")
+
+    kept_set = set(expected_kept)
+    skipped_set = set(expected_skipped)
+    return AcceptedSpacePlan(
+        strategy=strategy,
+        kept_item_ids=tuple(item_id for item_id in item_ids if item_id in kept_set),
+        skipped_item_ids=tuple(item_id for item_id in item_ids if item_id in skipped_set),
+        user_confirmed=True,
+    )
+
+
 class RelayDiskUsage(NamedTuple):
     total: int
     used: int

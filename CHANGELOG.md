@@ -2,6 +2,19 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.17] - 2026-11-14
+
+Source-only development snapshot; publication record will be added after remote confirmation. No release tag. Android `versionCode` is 18. This remains an alpha and is not a production release.
+
+### Android staging diagnostics
+
+- Restore Inbox now inventories TransferKit-owned staging folders and shows exact measured bytes and protected/cleanup-candidate status.
+- Active checkpoints, restore-pending payloads, unknown states, and unsafe directory trees cannot be cleaned through this flow. Abandoned/orphaned staging requires a user confirmation and an unchanged rescan before deletion.
+- Staging bytes are explicitly marked as already reflected in the filesystem's available-space value, so Space Preflight does not subtract them twice.
+- Space Preflight acceptance now defaults to a feasible batch plan, requires explicit confirmation/strategy choice for streaming and drop-largest, validates the exact kept/skipped manifest partition, and fails closed for unknown or insufficient estimates.
+- Added strict shared JSON Schemas plus semantic Python/Kotlin models for SpaceReport and SpaceDecision; protocol examples are schema-validated.
+- Local Python suite: 178/178 passed; Android unit suite: 158/158 passed; debug and AndroidTest APK assemblies succeeded. No phones were used. Live SpaceReport/TKSP/TKSD transport and Windows strategy UI remain open.
+
 ## [0.1.0-alpha.16] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `951b249d582ded1831f714c15b3f82563fa6ddbb`; no release tag. Android `versionCode` is 17. This remains an alpha and is not a production release.

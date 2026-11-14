@@ -16,6 +16,8 @@ from transferkit.contracts import (
     ReportDecision,
     ReasonCode,
     ReportStatus,
+    SpaceDecision,
+    SpaceReport,
     TransferManifest,
     TransferReceipt,
     TransferReport,
@@ -110,6 +112,41 @@ def valid_report() -> dict:
     }
 
 
+def valid_space_report() -> dict:
+    return {
+        "version": "1.0",
+        "protocol_version": "2",
+        "transfer_id": TRANSFER_ID,
+        "available_bytes": 3_000_000_000,
+        "allocatable_bytes": 3_000_000_000,
+        "safety_margin_bytes": 150_000_000,
+        "safe_available_bytes": 2_850_000_000,
+        "staging_leftover_bytes": 0,
+        "total_manifest_bytes": 2_500_000_000,
+        "largest_item_bytes": 5_000_000,
+        "batch_peak_bytes": 5_000_000_000,
+        "streaming_peak_bytes": 2_505_000_000,
+        "estimates_complete": True,
+        "unknown_item_ids": [],
+        "strategy": "streaming",
+        "decision_required": True,
+        "kept_item_ids": ["photo_1"],
+        "skipped_item_ids": [],
+    }
+
+
+def valid_space_decision() -> dict:
+    return {
+        "version": "1.0",
+        "protocol_version": "2",
+        "transfer_id": TRANSFER_ID,
+        "strategy": "streaming",
+        "user_confirmed": True,
+        "kept_item_ids": ["photo_1"],
+        "skipped_item_ids": [],
+    }
+
+
 def valid_receipt() -> dict:
     return {
         "version": "1.0",
@@ -200,9 +237,57 @@ class ContractModelTests(unittest.TestCase):
             (valid_capability_manifest(), "capability.schema.json"),
             (valid_report(), "report.schema.json"),
             (valid_receipt(), "receipt.schema.json"),
+            (valid_space_report(), "space-report.schema.json"),
+            (valid_space_decision(), "space-decision.schema.json"),
         ):
             with self.subTest(schema=schema_name):
                 validate_document(payload, schema_name)
+
+    def test_space_report_unknown_measurements_and_insufficient_space_fail_closed(self) -> None:
+        payload = valid_space_report()
+        payload["allocatable_bytes"] = None
+        payload["safety_margin_bytes"] = None
+        payload["safe_available_bytes"] = None
+        payload["batch_peak_bytes"] = None
+        payload["streaming_peak_bytes"] = None
+        payload["estimates_complete"] = False
+        payload["unknown_item_ids"] = ["photo_1"]
+        payload["strategy"] = "insufficient"
+        payload["decision_required"] = True
+        payload["kept_item_ids"] = []
+        payload["skipped_item_ids"] = []
+
+        validate_document(payload, "space-report.schema.json")
+        self.assertEqual(SpaceReport.model_validate(payload).strategy, "insufficient")
+
+        payload["strategy"] = "batch"
+        with self.assertRaisesRegex(ValueError, "incomplete estimates"):
+            validate_document(payload, "space-report.schema.json")
+
+    def test_space_report_budget_equation_and_strategy_choice_are_semantic(self) -> None:
+        payload = valid_space_report()
+        payload["safe_available_bytes"] -= 1
+        with self.assertRaisesRegex(ValueError, "safe_available_bytes"):
+            validate_document(payload, "space-report.schema.json")
+
+        payload = valid_space_report()
+        payload["strategy"] = "batch"
+        payload["decision_required"] = True
+        with self.assertRaisesRegex(ValueError, "batch is the default"):
+            validate_document(payload, "space-report.schema.json")
+
+    def test_space_decision_requires_confirmation_and_prohibits_unsafe_subsets(self) -> None:
+        payload = valid_space_decision()
+        payload["user_confirmed"] = False
+        with self.assertRaisesRegex(ValueError, "requires user confirmation"):
+            validate_document(payload, "space-decision.schema.json")
+
+        payload = valid_space_decision()
+        payload["strategy"] = "insufficient"
+        payload["user_confirmed"] = False
+        with self.assertRaisesRegex(ValueError, "cannot confirm or authorize"):
+            payload["kept_item_ids"] = ["photo_1"]
+            validate_document(payload, "space-decision.schema.json")
 
     def test_pydantic_json_serialization_uses_z_and_passes_schemas(self) -> None:
         now = datetime.now(timezone.utc)
@@ -306,6 +391,17 @@ class ContractModelTests(unittest.TestCase):
         validate_document(manifest_72, "manifest.schema.json")
         validate_document(receipt, "receipt.schema.json")
         validate_document(report, "report.schema.json")
+
+        protocol = (Path(__file__).resolve().parents[1] / "shared" / "protocol.md").read_text(encoding="utf-8")
+        for heading, schema_name in (
+            ('Target надсилає `SpaceReport` frame', "space-report.schema.json"),
+            ('Source повертає `SpaceDecision`', "space-decision.schema.json"),
+        ):
+            with self.subTest(protocol_example=schema_name):
+                start = protocol.index(heading)
+                match = re.search(r"```(?:json)?\s*\n(.*?)\n```", protocol[start:], re.DOTALL)
+                self.assertIsNotNone(match)
+                validate_document(json.loads(match.group(1)), schema_name)
 
         sample_item = stage4["categories"]["photos"]["items"][0]
         self.assertNotIn("path", sample_item)

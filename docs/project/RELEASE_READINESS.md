@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.16` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.16`, `versionCode=17`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.17` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.17`, `versionCode=18`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -244,3 +244,18 @@ Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and
 ## Alpha.14 source-only snapshot (2026-11-14)
 
 `0.1.0-alpha.14` (Android `versionCode=15`) опубліковано у приватний GitHub `main` fast-forward commit-ом `35002785af5b0d6cb474b791f793d2a12bc0ecaa` після `fd31533d259b9151572dc8153b6df242016df77c`; remote HEAD було звірено одразу після push. Source-only snapshot містить 11 source/doc files, без APK/AAB/build/cache artifacts та відомих secret-pattern збігів. Android unit suite — 144/144, Python — 152/152; debug і AndroidTest APK assemblies успішні. Release tag не створювався. Фізичну notification/session lifecycle та disconnect/recovery перевірку не заявляємо; телефони не використовувались.
+
+## TransferKit staging inventory (2026-11-14, checklist 111)
+
+- Restore Inbox lists UUID-named app-private staging directories with exact recursive byte totals and state classifications.
+- RUNNING/PAUSED checkpoints, COMPLETED transfers awaiting restore, unknown database states, unreadable trees, and symbolic-link trees are protected from cleanup. Abandoned and orphaned directories may be selected for cleanup only after a dialog displays the measured size.
+- Cleanup rescans status and size immediately before deletion and refuses changed or newly unsafe trees. Scope is the TransferKit receiver root; restored destination files are not touched.
+- Every listed byte is already consumed storage and is represented by Android's available-space measurement; diagnostic staging bytes must not be deducted again in Space Preflight.
+- Validation: five new scanner regressions; Android unit suite 153/153; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded. Physical device/OEM cleanup behavior remains untested.
+
+## Space Preflight user decision policy (2026-11-14, checklist 112 partial)
+
+- The calculator's first feasible strategy remains batch. Added a Python acceptance boundary requiring final user confirmation, requiring an explicit matching selection for streaming/drop-largest, validating that kept/skipped IDs form the exact manifest partition, and refusing unknown or insufficient estimates.
+- Added strict `space-report.schema.json`/`space-decision.schema.json`, semantic Python contracts, and Kotlin wire-contract models. Known capacity/peaks must agree with the safety budget; unknown capacity/provider estimates become `insufficient` and authorize no items. Protocol examples are regression-validated.
+- Validation: nine new Python regressions; five Kotlin regressions; full Python suite 178/178 and Android unit suite 158/158 passed; debug and AndroidTest assemblies succeeded.
+- This is only the policy core. There is not yet a live `TKSP`/`TKSD` consumer or a Windows strategy dialog; checklist points 116–117 and end-to-end acceptance remain open before point 112 can be closed.

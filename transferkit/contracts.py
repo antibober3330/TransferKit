@@ -663,6 +663,115 @@ class ResumePlan(ContractModel):
         return self
 
 
+class SpaceReport(ContractModel):
+    version: Literal["1.0"]
+    protocol_version: Literal["2"]
+    transfer_id: UUID
+    available_bytes: int | None = Field(ge=0, le=9_007_199_254_740_991)
+    allocatable_bytes: int | None = Field(ge=0, le=9_007_199_254_740_991)
+    safety_margin_bytes: int | None = Field(ge=0, le=9_007_199_254_740_991)
+    safe_available_bytes: int | None = Field(ge=0, le=9_007_199_254_740_991)
+    staging_leftover_bytes: int = Field(ge=0, le=9_007_199_254_740_991)
+    total_manifest_bytes: int = Field(ge=0, le=9_007_199_254_740_991)
+    largest_item_bytes: int = Field(ge=0, le=9_007_199_254_740_991)
+    batch_peak_bytes: int | None = Field(ge=0, le=9_007_199_254_740_991)
+    streaming_peak_bytes: int | None = Field(ge=0, le=9_007_199_254_740_991)
+    estimates_complete: bool
+    unknown_item_ids: list[str] = Field(max_length=100_000)
+    strategy: Literal["batch", "streaming", "drop-largest", "insufficient"]
+    decision_required: bool
+    kept_item_ids: list[str] = Field(max_length=100_000)
+    skipped_item_ids: list[str] = Field(max_length=100_000)
+
+    @model_validator(mode="after")
+    def report_is_safe_and_consistent(self) -> SpaceReport:
+        for field_name, values in (
+            ("unknown_item_ids", self.unknown_item_ids),
+            ("kept_item_ids", self.kept_item_ids),
+            ("skipped_item_ids", self.skipped_item_ids),
+        ):
+            if any(not item_id.strip() for item_id in values) or len(values) != len(set(values)):
+                raise ValueError(f"{field_name} must contain unique non-empty item IDs")
+        if set(self.kept_item_ids).intersection(self.skipped_item_ids):
+            raise ValueError("kept and skipped item IDs must be disjoint")
+        if not self.estimates_complete:
+            if (not self.unknown_item_ids and self.allocatable_bytes is not None) or \
+                self.strategy != "insufficient" or not self.decision_required:
+                raise ValueError("incomplete estimates must block transfer and identify what is unknown")
+        elif self.unknown_item_ids:
+            raise ValueError("complete estimates cannot contain unknown item IDs")
+        elif self.allocatable_bytes is None or self.batch_peak_bytes is None or self.streaming_peak_bytes is None:
+            raise ValueError("complete estimates require allocatable space and both strategy peaks")
+        if self.largest_item_bytes > self.total_manifest_bytes:
+            raise ValueError("largest_item_bytes cannot exceed total_manifest_bytes")
+        if self.allocatable_bytes is None:
+            if self.estimates_complete or any(value is not None for value in (self.safety_margin_bytes, self.safe_available_bytes)):
+                raise ValueError("unknown allocatable space cannot have derived budget values")
+            if self.strategy != "insufficient" or not self.decision_required:
+                raise ValueError("unknown allocatable space must block transfer")
+        else:
+            if self.safety_margin_bytes is None or self.safe_available_bytes is None:
+                raise ValueError("known allocatable space requires margin and safe budget")
+            if self.safe_available_bytes != max(0, self.allocatable_bytes - self.safety_margin_bytes):
+                raise ValueError("safe_available_bytes does not match the allocatable budget")
+        if self.strategy == "batch":
+            if self.decision_required or self.skipped_item_ids:
+                raise ValueError("batch is the default only when all items fit")
+            if self.batch_peak_bytes is None or self.batch_peak_bytes > (self.safe_available_bytes or 0):
+                raise ValueError("batch strategy exceeds the safe storage budget")
+        elif not self.decision_required:
+            raise ValueError("non-batch strategies require an explicit user decision")
+        if self.strategy == "streaming" and self.estimates_complete:
+            if self.batch_peak_bytes is None or self.streaming_peak_bytes is None or \
+                self.batch_peak_bytes <= (self.safe_available_bytes or 0) or \
+                self.streaming_peak_bytes > (self.safe_available_bytes or 0):
+                raise ValueError("streaming strategy must fit when batch does not")
+        if self.strategy in ("streaming", "drop-largest") and not self.kept_item_ids:
+            raise ValueError("transferable non-batch strategy must keep at least one item")
+        if self.strategy == "drop-largest" and self.estimates_complete:
+            if self.batch_peak_bytes is None or self.streaming_peak_bytes is None or \
+                self.batch_peak_bytes <= (self.safe_available_bytes or 0) or \
+                self.streaming_peak_bytes <= (self.safe_available_bytes or 0):
+                raise ValueError("drop-largest requires streaming all items to exceed the safe budget")
+        if self.strategy == "insufficient" and (self.kept_item_ids or self.skipped_item_ids):
+            raise ValueError("insufficient space cannot authorize any manifest item")
+        if self.strategy == "insufficient" and self.estimates_complete:
+            if self.batch_peak_bytes is None or self.streaming_peak_bytes is None or \
+                min(self.batch_peak_bytes, self.streaming_peak_bytes) <= (self.safe_available_bytes or 0):
+                raise ValueError("insufficient strategy is invalid when a full-transfer strategy fits")
+        return self
+
+
+class SpaceDecision(ContractModel):
+    version: Literal["1.0"]
+    protocol_version: Literal["2"]
+    transfer_id: UUID
+    strategy: Literal["batch", "streaming", "drop-largest", "insufficient"]
+    user_confirmed: bool
+    kept_item_ids: list[str] = Field(max_length=100_000)
+    skipped_item_ids: list[str] = Field(max_length=100_000)
+
+    @model_validator(mode="after")
+    def decision_needs_valid_confirmation(self) -> SpaceDecision:
+        for field_name, values in (
+            ("kept_item_ids", self.kept_item_ids),
+            ("skipped_item_ids", self.skipped_item_ids),
+        ):
+            if any(not item_id.strip() for item_id in values) or len(values) != len(set(values)):
+                raise ValueError(f"{field_name} must contain unique non-empty item IDs")
+        if set(self.kept_item_ids).intersection(self.skipped_item_ids):
+            raise ValueError("kept and skipped item IDs must be disjoint")
+        if self.strategy == "insufficient":
+            if self.user_confirmed or self.kept_item_ids or self.skipped_item_ids:
+                raise ValueError("insufficient-space decision cannot confirm or authorize items")
+        else:
+            if not self.user_confirmed or not self.kept_item_ids:
+                raise ValueError("transfer decision requires user confirmation and kept items")
+            if self.strategy in ("batch", "streaming") and self.skipped_item_ids:
+                raise ValueError("batch and streaming decisions cannot skip manifest items")
+        return self
+
+
 class ChunkHeader(ContractModel):
     version: Literal[1]
     transfer_id: UUID
@@ -727,6 +836,8 @@ def validate_document(document: dict[str, Any], schema_name: str) -> ContractMod
         "receipt.schema.json": TransferReceipt,
         "checkpoint-state.schema.json": CheckpointState,
         "resume-plan.schema.json": ResumePlan,
+        "space-report.schema.json": SpaceReport,
+        "space-decision.schema.json": SpaceDecision,
     }
     semantic_model = semantic_models.get(schema_name)
     if semantic_model is None:

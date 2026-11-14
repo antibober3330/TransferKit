@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://transferkit.local/schema/space-report.schema.json",
+  "title": "TransferKit Space Preflight Report",
+  "description": "Target storage estimate and safe strategy recommendation before the first data chunk.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version", "protocol_version", "transfer_id", "available_bytes", "allocatable_bytes",
+    "safety_margin_bytes", "safe_available_bytes", "staging_leftover_bytes", "total_manifest_bytes",
+    "largest_item_bytes", "batch_peak_bytes", "streaming_peak_bytes", "estimates_complete", "unknown_item_ids", "strategy", "decision_required",
+    "kept_item_ids", "skipped_item_ids"
+  ],
+  "properties": {
+    "version": { "const": "1.0" },
+    "protocol_version": { "const": "2" },
+    "transfer_id": { "type": "string", "format": "uuid" },
+    "available_bytes": { "$ref": "#/$defs/optional_bytes" },
+    "allocatable_bytes": { "$ref": "#/$defs/optional_bytes" },
+    "safety_margin_bytes": { "$ref": "#/$defs/optional_bytes" },
+    "safe_available_bytes": { "$ref": "#/$defs/optional_bytes" },
+    "staging_leftover_bytes": { "$ref": "#/$defs/bytes" },
+    "total_manifest_bytes": { "$ref": "#/$defs/bytes" },
+    "largest_item_bytes": { "$ref": "#/$defs/bytes" },
+    "batch_peak_bytes": { "$ref": "#/$defs/optional_bytes" },
+    "streaming_peak_bytes": { "$ref": "#/$defs/optional_bytes" },
+    "estimates_complete": { "type": "boolean" },
+    "unknown_item_ids": { "$ref": "#/$defs/item_ids" },
+    "strategy": { "$ref": "#/$defs/strategy" },
+    "decision_required": { "type": "boolean" },
+    "kept_item_ids": { "$ref": "#/$defs/item_ids" },
+    "skipped_item_ids": { "$ref": "#/$defs/item_ids" }
+  },
+  "$defs": {
+    "bytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "optional_bytes": {
+      "anyOf": [
+        { "$ref": "#/$defs/bytes" },
+        { "type": "null" }
+      ]
+    },
+    "item_ids": {
+      "type": "array",
+      "maxItems": 100000,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "\\S" }
+    },
+    "strategy": { "enum": ["batch", "streaming", "drop-largest", "insufficient"] }
+  }
+}

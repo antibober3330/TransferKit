@@ -115,6 +115,12 @@
 
 `RecoveryStatus` використовує значення `RUNNING`, `RECONNECTING`, `PAUSED_AWAITING_USER`, `PAUSED_BLOCKED`, `RESUMING`, `RESTARTING`, `COMPLETED`, `SUPERSEDED`, `ABANDONED`. `RESUMING` і `RESTARTING` — короткі транзитні стани; `SUPERSEDED` та `ABANDONED` — різні термінальні стани старої передачі. `RESUME_AVAILABLE`/`RESUME_NOT_POSSIBLE` описують можливість дії, а `USER_CHOSE_RESTART`/`USER_CHOSE_ABANDON` — події користувача, не підстави для `OK`.
 
+## Space Preflight control payloads
+
+`SpaceReport` (`space-report.schema.json`) описує оцінені `available_bytes`/`allocatable_bytes`, safety margin, staging leftovers, обсяг manifest, `batch_peak_bytes`, `streaming_peak_bytes`, найбільший item, повноту оцінки та рекомендовану стратегію. `staging_leftover_bytes` уже входить у `available_bytes` і є лише діагностикою. Якщо capacity або item estimate невідомі, report зобов’язаний обрати `insufficient`; він не може дозволити передачу. Semantic model звіряє safe budget із allocatable space та не приймає strategy, peak якої не вміщується.
+
+`SpaceDecision` (`space-decision.schema.json`) повертається лише після review. `batch` залишається default, коли всі items безпечно вміщуються; `streaming` і `drop-largest` вимагають `user_confirmed=true`. `kept_item_ids` та `skipped_item_ids` мають бути взаємно неперетинними й разом точно покривати вибрані manifest items; target перевіряє це до першого chunk. `insufficient` має `user_confirmed=false` і порожні списки.
+
 Resume дозволяється лише за збігу `transfer_id`, SHA-256 канонічного manifest, installation-scoped source/target identity fingerprints і protocol version. Target checkpoint є авторитетним; source база — дзеркало. TTL становить 30 днів від останнього durable checkpoint. Вичерпання TTL блокує resume, але не запускає автоматичне видалення staging.
 
 Форми wire/application payload описані у `checkpoint-state.schema.json` і `resume-plan.schema.json`, а Python semantic validators додатково вимагають, щоб лічильники категорії дорівнювали `verified + failed + pending + partial`, partial IDs були унікальні, а chunk/offset межі були допустимими. Item без підтверджених chunks є pending. Кожен `ResumePlan` вимагає явного user confirmation; target offset додатково зіставляється з незмінним manifest і durable chunk ledger під час побудови плану.

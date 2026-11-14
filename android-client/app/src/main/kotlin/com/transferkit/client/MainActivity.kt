@@ -25,6 +25,7 @@ import java.io.IOException
 import java.util.concurrent.Executors
 import com.transferkit.client.receiver.AndroidTransferReceiver
 import com.transferkit.client.receiver.ReceivedTransferSummary
+import com.transferkit.client.receiver.StagingLeftover
 import com.transferkit.client.restore.LegacyMediaRestorer
 import com.transferkit.client.restore.MediaStoreRestorer
 import com.transferkit.client.restore.ContactsRestorer
@@ -91,6 +92,7 @@ class MainActivity : ComponentActivity() {
     private var restoreInProgress by mutableStateOf(false)
     private var restoreInboxStatus by mutableStateOf("Список отриманих передач ще не оновлено.")
     private var receivedTransfers by mutableStateOf<List<ReceivedTransferSummary>>(emptyList())
+    private var stagingLeftovers by mutableStateOf<List<StagingLeftover>>(emptyList())
     private var selectedRestoreItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
     private var pendingCalendarItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
     private var pendingDocumentRestoreItems = emptyList<VerifiedRestoreItem>()
@@ -353,6 +355,7 @@ class MainActivity : ComponentActivity() {
                         status = restoreInboxStatus,
                         loading = restoreInboxLoading,
                         restoring = restoreInProgress,
+                        stagingLeftovers = stagingLeftovers,
                         onBack = {
                             selectedRestoreItems = emptyList()
                             pendingCalendarItems = emptyList()
@@ -364,6 +367,7 @@ class MainActivity : ComponentActivity() {
                         onRefresh = { refreshRestoreInbox() },
                         onReview = ::requestRestoreReview,
                         onReviewApks = ::prepareApkReview,
+                        onCleanupStaging = ::cleanupStagingCandidate,
                     )
                     if (pendingCalendarItems.isNotEmpty() && calendarDestinations.isNotEmpty()) {
                         CalendarDestinationDialog(
@@ -553,11 +557,15 @@ class MainActivity : ComponentActivity() {
         restoreInboxLoading = true
         if (!preserveStatus) restoreInboxStatus = "Перевіряю завершені передачі…"
         mediaExecutor.execute {
-            val result = runCatching { transferReceiver.availableRestoreTransfers() }
+            val result = runCatching {
+                transferReceiver.availableRestoreTransfers() to transferReceiver.stagingLeftovers()
+            }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 restoreInboxLoading = false
-                receivedTransfers = result.getOrDefault(emptyList())
+                val snapshot = result.getOrNull()
+                receivedTransfers = snapshot?.first ?: emptyList()
+                stagingLeftovers = snapshot?.second ?: emptyList()
                 if (!preserveStatus) {
                     restoreInboxStatus = if (result.isSuccess) {
                         if (receivedTransfers.isEmpty()) "Завершених передач ще немає."
@@ -566,6 +574,31 @@ class MainActivity : ComponentActivity() {
                         "Не вдалося прочитати список отриманих передач."
                     }
                 }
+            }
+        }
+    }
+
+    private fun cleanupStagingCandidate(transferId: String, displayedBytes: Long) {
+        if (restoreInboxLoading || restoreInProgress) return
+        restoreInboxLoading = true
+        restoreInboxStatus = "Перевіряю підтверджений staging перед очищенням…"
+        mediaExecutor.execute {
+            val result = runCatching {
+                transferReceiver.cleanupStagingLeftoverAfterConfirmation(
+                    transferId = transferId,
+                    displayedBytes = displayedBytes,
+                    confirmedByUser = true,
+                )
+            }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                restoreInboxLoading = false
+                restoreInboxStatus = if (result.getOrDefault(false)) {
+                    "Тимчасові дані TransferKit очищено. Відновлені файли не змінювалися."
+                } else {
+                    "Не очищено: стан або розмір staging змінився, чи передача захищена. Онови список."
+                }
+                refreshRestoreInbox(preserveStatus = true)
             }
         }
     }

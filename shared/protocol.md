@@ -171,7 +171,7 @@ Reason codes для Recovery: `RESUME_AVAILABLE`, `RESUME_NOT_POSSIBLE`, `CHECKP
 
 Space negotiation виконується після того, як target прийняв і перевірив manifest, але перед першим data chunk. Wire extension має `protocol_version=2`; protocol 1 peers не повинні мовчки трактувати невідомий контрольний frame як chunk. До старту передачі користувач підтверджує обрану strategy та restore.
 
-Target надсилає `SpaceReport` frame: `magic "TKSP"` (4 bytes), frame version `1` (1 byte), payload size (uint32 big-endian), canonical JSON UTF-8 payload. `available_bytes` показує актуальне вільне місце; `allocatable_bytes` є вхідною величиною для budget; `staging_leftover_bytes` — діагностична величина, що вже врахована в доступному budget і вдруге не віднімається.
+Target надсилає `SpaceReport` frame: `magic "TKSP"` (4 bytes), frame version `1` (1 byte), payload size (uint32 big-endian), canonical JSON UTF-8 payload. `available_bytes` показує актуальне вільне місце; `allocatable_bytes` є вхідною величиною для budget; `batch_peak_bytes` і `streaming_peak_bytes` мають бути відомі, щоб `estimates_complete=true`; `staging_leftover_bytes` — діагностична величина, що вже врахована в доступному budget і вдруге не віднімається.
 
 ```json
 {
@@ -185,14 +185,32 @@ Target надсилає `SpaceReport` frame: `magic "TKSP"` (4 bytes), frame ver
   "staging_leftover_bytes": 0,
   "total_manifest_bytes": 2500000000,
   "largest_item_bytes": 5000000,
+  "batch_peak_bytes": 5000000000,
+  "streaming_peak_bytes": 2505000000,
+  "estimates_complete": true,
+  "unknown_item_ids": [],
   "strategy": "streaming",
   "decision_required": true,
-  "kept_item_ids": [],
+  "kept_item_ids": ["photo_1"],
   "skipped_item_ids": []
 }
 ```
 
-Source повертає `SpaceDecision` (`magic "TKSD"`, version, length, canonical JSON) із `transfer_id`, обраною strategy, `user_confirmed`, `kept_item_ids` і `skipped_item_ids`. Для `batch` обидва списки можуть бути порожні; рішення зберігається для audit. Для `drop-largest` ціль звіряє списки з manifest і затвердженим subset; source передає лише kept IDs. Для `insufficient` передача data не починається.
+Якщо allocatable space або provider estimate невідомі, `estimates_complete=false`, `strategy="insufficient"`, `decision_required=true`; `unknown_item_ids` перелічує невідомі оцінки, а коли невідома саме capacity — може бути порожнім. Жодна стратегія не може авторизувати data у цьому стані.
+
+Source повертає `SpaceDecision` (`magic "TKSD"`, version, length, canonical JSON) із `version`, `protocol_version="2"`, `transfer_id`, обраною strategy, `user_confirmed`, `kept_item_ids` і `skipped_item_ids`. Для batch kept містить усі вибрані IDs, skipped порожній; для streaming kept теж містить усі IDs і skipped порожній. Ціль звіряє обидва списки з manifest до першого data chunk. Для drop-largest ціль також звіряє subset із SpaceReport; source передає лише kept IDs. Для `insufficient` source повертає `user_confirmed=false` і порожні списки; передача data не починається.
+
+```json
+{
+  "version": "1.0",
+  "protocol_version": "2",
+  "transfer_id": "00000000-0000-4000-8000-000000000001",
+  "strategy": "streaming",
+  "user_confirmed": true,
+  "kept_item_ids": ["photo_1"],
+  "skipped_item_ids": []
+}
+```
 
 | Strategy | Потік |
 |---|---|

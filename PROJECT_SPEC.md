@@ -176,6 +176,7 @@ Windows Station показує фактично підтверджений пр�
 * `shared/receipt.schema.json` — JSON Schema квитанції приймача.
 * `shared/report.schema.json` — JSON Schema звіту.
 * `shared/capability.schema.json` — JSON Schema capability-манифесту.
+* `shared/space-report.schema.json` і `shared/space-decision.schema.json` — машинні контракти для target SpaceReport та підтвердженого source-рішення до першого чанка.
 
 ---
 
@@ -304,7 +305,7 @@ streaming_peak = total_restore_estimate + largest_item_staging
 
 Якщо batch влазить — за замовчуванням використовується batch без діалогу, з інформаційною оцінкою. Якщо batch не влазить, але streaming усіх items влазить — показати вибір streaming, звільнити місце або скасувати. Якщо всі items не влазять потоково — відсортувати items від найменшого до найбільшого. Для candidate item перевірка має бути `candidate_restore_sum + max(candidate_staging_size) <= safe_available`; за однакового item size для staging і restore це спрощується до `running_sum + 2 × item.size <= safe_available`. Це гарантує максимальну кількість найменших items і не відкидає item-и, які фізично вміщуються. Якщо не вміщується навіть найменший item — запропонувати лише звільнення місця або скасування. `TARGET_ITEM_TOO_LARGE` означає, що окремий item не проходить бюджет; `TARGET_SPACE_INSUFFICIENT` означає, що всі вибрані items не вміщуються, хоча підмножина може вміститися. Реальна помилка запису лишається `TARGET_NO_SPACE`.
 
-SpaceReport передає source обсягів, вибрану стратегію `batch`, `streaming`, `drop-largest` або `insufficient`, чи потрібне рішення користувача, та явні `kept_item_ids`/`skipped_item_ids` для drop-largest. У пропущених items немає receipt про отримані bytes: вони залишаються у manifest, відображаються як `SKIPPED_NO_SPACE` у локальному плані та як per-item failure/decision у report. Повторна спроба пропущених items — окрема передача з новим `transfer_id`; звіт і фінальний receipt попереднього ID не переписуються.
+SpaceReport передає source обсяги, чи завершені всі оцінки, список item-ів з невідомим розміром, вибрану стратегію `batch`, `streaming`, `drop-largest` або `insufficient`, чи потрібне рішення користувача, та явні `kept_item_ids`/`skipped_item_ids`. Якщо allocatable space або потрібні provider estimates невідомі, стратегія мусить бути `insufficient`, передача не починається. Batch є default лише коли безпечна оцінка доводить, що влазять усі items; streaming/drop-largest потребують явного підтвердження. У пропущених items немає receipt про отримані bytes: вони залишаються у manifest, відображаються як `SKIPPED_NO_SPACE` у локальному плані та як per-item failure/decision у report. Повторна спроба пропущених items — окрема передача з новим `transfer_id`; звіт і фінальний receipt попереднього ID не переписуються.
 
 Для streaming target приймає один item, записує staging, перевіряє розмір і SHA-256 та лише тоді викликає restore. Перед публікацією MediaStore item перевіряється SHA-256 bytes, записаних у destination. Android 10+ використовує `IS_PENDING=1` до успішної перевірки та змінює на `0` лише після неї; Android 8–9 використовує власний `.pending_` файл на тому самому volume, перевіряє його й виконує контрольований rename/scan. Після process death очищуються тільки прострочені власні pending files, не чужі файли; автоматичне очищення MediaStore не є єдиним механізмом recovery.
 

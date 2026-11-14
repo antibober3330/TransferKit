@@ -5,9 +5,11 @@ from tempfile import TemporaryDirectory
 
 from transferkit.space_preflight import (
     MIB,
+    SpacePlanBlocked,
     SpaceItemEstimate,
     SpaceStrategy,
     RelayDiskUsage,
+    accept_space_preflight,
     calculate_space_preflight,
     default_safety_margin,
     estimate_backup_relay_export_space,
@@ -20,6 +22,87 @@ def estimates(*sizes: int) -> tuple[SpaceItemEstimate, ...]:
 
 
 class SpacePreflightTests(unittest.TestCase):
+    def test_batch_is_the_default_accepted_plan_after_restore_confirmation(self):
+        items = estimates(10, 20)
+        result = calculate_space_preflight(items, allocatable_bytes=100, safety_margin_bytes=0)
+
+        accepted = accept_space_preflight(
+            result,
+            (item.item_id for item in items),
+            user_confirmed=True,
+        )
+
+        self.assertEqual(accepted.strategy, SpaceStrategy.BATCH)
+        self.assertEqual(accepted.kept_item_ids, ("0", "1"))
+        self.assertEqual(accepted.skipped_item_ids, ())
+        self.assertTrue(accepted.user_confirmed)
+
+    def test_batch_does_not_start_without_user_confirmation(self):
+        items = estimates(10)
+        result = calculate_space_preflight(items, allocatable_bytes=100, safety_margin_bytes=0)
+
+        with self.assertRaisesRegex(SpacePlanBlocked, "not been confirmed"):
+            accept_space_preflight(result, ("0",), user_confirmed=False)
+
+    def test_streaming_requires_matching_explicit_choice_and_confirmation(self):
+        items = estimates(30, 30)
+        result = calculate_space_preflight(items, allocatable_bytes=100, safety_margin_bytes=0)
+
+        with self.assertRaisesRegex(SpacePlanBlocked, "explicit user choice"):
+            accept_space_preflight(result, ("0", "1"), user_confirmed=True)
+        with self.assertRaisesRegex(SpacePlanBlocked, "differs"):
+            accept_space_preflight(
+                result,
+                ("0", "1"),
+                selected_strategy=SpaceStrategy.BATCH,
+                user_confirmed=True,
+            )
+        accepted = accept_space_preflight(
+            result,
+            ("0", "1"),
+            selected_strategy=SpaceStrategy.STREAMING,
+            user_confirmed=True,
+        )
+        self.assertEqual(accepted.kept_item_ids, ("0", "1"))
+
+    def test_drop_largest_acceptance_preserves_exact_kept_and_skipped_partition(self):
+        items = estimates(10, 30, 40)
+        result = calculate_space_preflight(items, allocatable_bytes=100, safety_margin_bytes=0)
+        accepted = accept_space_preflight(
+            result,
+            (item.item_id for item in items),
+            selected_strategy=SpaceStrategy.DROP_LARGEST,
+            user_confirmed=True,
+        )
+
+        self.assertEqual(accepted.kept_item_ids, ("0", "1"))
+        self.assertEqual(accepted.skipped_item_ids, ("2",))
+
+    def test_unknown_or_insufficient_estimates_fail_closed_even_with_user_approval(self):
+        unknown = calculate_space_preflight(
+            (SpaceItemEstimate("0", None, 10),), allocatable_bytes=100, safety_margin_bytes=0
+        )
+        insufficient = calculate_space_preflight(
+            estimates(60), allocatable_bytes=100, safety_margin_bytes=0
+        )
+
+        for result in (unknown, insufficient):
+            with self.subTest(strategy=result.strategy):
+                with self.assertRaises(SpacePlanBlocked):
+                    accept_space_preflight(
+                        result,
+                        ("0",),
+                        selected_strategy=result.strategy,
+                        user_confirmed=True,
+                    )
+
+    def test_preflight_partition_must_cover_manifest_exactly(self):
+        result = calculate_space_preflight(
+            estimates(10, 20), allocatable_bytes=100, safety_margin_bytes=0
+        )
+        with self.assertRaisesRegex(SpacePlanBlocked, "does not match"):
+            accept_space_preflight(result, ("0", "extra"), user_confirmed=True)
+
     def test_batch_is_default_when_all_items_fit_with_margin(self):
         result = calculate_space_preflight(
             estimates(10, 20), allocatable_bytes=100, safety_margin_bytes=0

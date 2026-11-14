@@ -366,6 +366,46 @@ class AndroidTransferReceiver(context: Context) : Closeable {
             .toList()
     }
 
+    /** Read-only inventory; active checkpoints and restore-pending payloads are never cleanup candidates. */
+    @Synchronized
+    fun stagingLeftovers(): List<StagingLeftover> =
+        StagingLeftoversScanner.scan(receiverRoot, database.transferStatuses())
+
+    /**
+     * Remove one abandoned or orphaned TransferKit staging tree only after the UI confirms its exact
+     * current byte count. Active, paused, completed, unknown, unsafe, or changed trees are refused.
+     */
+    @Synchronized
+    fun cleanupStagingLeftoverAfterConfirmation(
+        transferId: String,
+        displayedBytes: Long,
+        confirmedByUser: Boolean,
+    ): Boolean {
+        if (!confirmedByUser || displayedBytes < 0L) return false
+        val entry = stagingLeftovers().firstOrNull { it.transferId == transferId } ?: return false
+        if (!entry.cleanupEligible || entry.bytes != displayedBytes) return false
+        val approval = cleanupApprovalGate.approveAfterUserConfirmation(
+            transferId,
+            displayedBytes,
+            confirmedByUser = true,
+        ) ?: return false
+        val directory = transferDirectory(transferId) ?: return false
+        val stillEligible = stagingLeftovers().firstOrNull { it.transferId == transferId } ?: return false
+        if (!stillEligible.cleanupEligible || stillEligible.bytes != displayedBytes ||
+            !cleanupApprovalGate.consume(approval, transferId, stillEligible.bytes)
+        ) return false
+
+        val transfer = database.transfer(transferId)
+        if (transfer == null) {
+            if (entry.kind != StagingLeftoverKind.ORPHANED_CANDIDATE) return false
+        } else {
+            if (transfer.status != ReceiverDatabase.TRANSFER_ABANDONED) return false
+            if (!database.markTransferAbandoned(transferId)) return false
+        }
+        manifests.remove(transferId)
+        return !directory.exists() || directory.deleteRecursively()
+    }
+
     /** Record post-verified restore success, then remove only the matching app-private payload. */
     @Synchronized
     fun recordPostVerifiedRestore(item: VerifiedRestoreItem): Boolean {

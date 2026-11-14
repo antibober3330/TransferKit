@@ -10,15 +10,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.transferkit.client.receiver.ReceivedTransferSummary
+import com.transferkit.client.receiver.StagingLeftover
+import com.transferkit.client.receiver.StagingLeftoverKind
 import java.util.Locale
 
 @Composable
@@ -27,11 +35,14 @@ fun RestoreInboxScreen(
     status: String,
     loading: Boolean,
     restoring: Boolean,
+    stagingLeftovers: List<StagingLeftover>,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onReview: (String) -> Unit,
     onReviewApks: (String) -> Unit,
+    onCleanupStaging: (String, Long) -> Unit,
 ) {
+    var pendingCleanup by remember { mutableStateOf<StagingLeftover?>(null) }
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
@@ -43,6 +54,28 @@ fun RestoreInboxScreen(
             OutlinedButton(onClick = onBack, enabled = !restoring) { Text("Назад") }
             Button(onClick = onRefresh, enabled = !loading && !restoring) {
                 Text(if (loading) "Оновлюю…" else "Оновити список")
+            }
+            if (stagingLeftovers.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Тимчасові дані TransferKit", style = MaterialTheme.typography.titleMedium)
+                        Text("Ці байти вже враховані у вільному місці сховища; вдруге до оцінки їх не додаємо.")
+                        stagingLeftovers.forEach { entry ->
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Передача ${entry.transferId.take(8)} · ${stagingKindLabel(entry.kind)}")
+                                Text(entry.bytes?.let(::formatRestoreBytes) ?: "Розмір перевірити безпечно не вдалося")
+                                if (entry.cleanupEligible && entry.bytes != null) {
+                                    OutlinedButton(
+                                        enabled = !restoring && !loading,
+                                        onClick = { pendingCleanup = entry },
+                                    ) {
+                                        Text("Переглянути очищення тимчасових даних")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if (transfers.isEmpty() && !loading) {
                 Text("Завершених отриманих передач поки немає.")
@@ -100,6 +133,38 @@ fun RestoreInboxScreen(
             }
         }
     }
+    pendingCleanup?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { pendingCleanup = null },
+            title = { Text("Очистити тимчасові дані TransferKit?") },
+            text = {
+                Text(
+                    "Буде видалено лише staging цієї передачі (${entry.bytes?.let(::formatRestoreBytes) ?: "невідомий обсяг"}). " +
+                        "Активні checkpoints і дані, уже відновлені в інші програми, не змінюються.",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingCleanup = null
+                        entry.bytes?.let { onCleanupStaging(entry.transferId, it) }
+                    },
+                ) { Text("Очистити") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingCleanup = null }) { Text("Скасувати") }
+            },
+        )
+    }
+}
+
+private fun stagingKindLabel(kind: StagingLeftoverKind): String = when (kind) {
+    StagingLeftoverKind.ACTIVE_CHECKPOINT -> "активний checkpoint, захищено"
+    StagingLeftoverKind.RESTORE_PENDING -> "очікує відновлення, захищено"
+    StagingLeftoverKind.CLEANUP_CANDIDATE -> "скасована передача"
+    StagingLeftoverKind.ORPHANED_CANDIDATE -> "залишок без запису передачі"
+    StagingLeftoverKind.PROTECTED_UNKNOWN -> "невідомий стан, захищено"
+    StagingLeftoverKind.UNSAFE -> "небезпечна структура, захищено"
 }
 
 private fun formatRestoreBytes(bytes: Long): String =

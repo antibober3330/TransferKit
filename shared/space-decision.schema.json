@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://transferkit.local/schema/space-decision.schema.json",
+  "title": "TransferKit Space Preflight Decision",
+  "description": "Source approval of the selected safe target space strategy before any data chunk is sent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "protocol_version", "transfer_id", "strategy", "user_confirmed", "kept_item_ids", "skipped_item_ids"],
+  "properties": {
+    "version": { "const": "1.0" },
+    "protocol_version": { "const": "2" },
+    "transfer_id": { "type": "string", "format": "uuid" },
+    "strategy": { "enum": ["batch", "streaming", "drop-largest", "insufficient"] },
+    "user_confirmed": { "type": "boolean" },
+    "kept_item_ids": { "$ref": "#/$defs/item_ids" },
+    "skipped_item_ids": { "$ref": "#/$defs/item_ids" }
+  },
+  "$defs": {
+    "item_ids": {
+      "type": "array",
+      "maxItems": 100000,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "\\S" }
+    }
+  }
+}

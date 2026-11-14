@@ -38,10 +38,12 @@ class RestoreInboxSettingsTest {
                     status = "synthetic fixture",
                     loading = false,
                     restoring = false,
+                    stagingLeftovers = emptyList(),
                     onBack = {},
                     onRefresh = {},
                     onReview = {},
                     onReviewApks = {},
+                    onCleanupStaging = { _, _ -> },
                 )
             }
         }

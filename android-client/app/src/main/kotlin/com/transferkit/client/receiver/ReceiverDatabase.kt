@@ -307,6 +307,21 @@ internal class ReceiverDatabase(context: Context) :
         }
     }
 
+    /** Small status-only view for staging inventory; does not load manifests or checkpoint rows. */
+    fun transferStatuses(): Map<String, String> = readableDatabase.query(
+        "received_transfers",
+        arrayOf("transfer_id", "status"),
+        null,
+        null,
+        null,
+        null,
+        "transfer_id ASC",
+    ).use { cursor ->
+        buildMap {
+            while (cursor.moveToNext()) put(cursor.getString(0), cursor.getString(1))
+        }
+    }
+
     fun insertManifest(
         transferId: String,
         manifestSha256: String,
