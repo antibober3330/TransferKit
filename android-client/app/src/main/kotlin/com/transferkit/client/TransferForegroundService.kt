@@ -89,10 +89,13 @@ class TransferForegroundService : Service() {
         try {
             lastProgressNotificationAtMillis = Long.MIN_VALUE
             currentDurableProgress = null
+            currentReceiverTransferActive = false
             receiver = AndroidTransferReceiver(applicationContext)
-            adbReceiverServer = UsbAdbReceiverServer(requireNotNull(receiver)) { progress ->
-                reportDurableProgress(progress)
-            }.also { it.start() }
+            adbReceiverServer = UsbAdbReceiverServer(
+                receiver = requireNotNull(receiver),
+                onDurableProgress = ::reportDurableProgress,
+                onTransferSessionActive = ::reportTransferSessionActivity,
+            ).also { it.start() }
             setReceiverStatus(STATUS_LISTENING)
             updateNotification("Очікую Windows Station через USB/ADB")
         } catch (_: Exception) {
@@ -144,6 +147,7 @@ class TransferForegroundService : Service() {
         adbReceiverServer = null
         receiver?.close()
         receiver = null
+        currentReceiverTransferActive = false
         setReceiverStatus(STATUS_STOPPED)
     }
 
@@ -176,6 +180,23 @@ class TransferForegroundService : Service() {
         )
     }
 
+    @Synchronized
+    private fun reportTransferSessionActivity(active: Boolean) {
+        currentReceiverTransferActive = active
+        if (active) {
+            updateNotification("Автентифіковану передачу розпочато; очікую durable checkpoint")
+            return
+        }
+        val progress = currentDurableProgress
+        val message = when {
+            progress == null -> "Сесію завершено; приймач очікує Windows Station"
+            progress.totalBytes > 0L && progress.receivedBytes < progress.totalBytes ->
+                "Сесію перервано; durable checkpoint збережено"
+            else -> "Сесію завершено; отримання байтів не підтверджує restore"
+        }
+        updateNotification(message, progress?.percent)
+    }
+
     private fun updateNotification(message: String, progressPercent: Int? = null) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload)
@@ -198,6 +219,7 @@ class TransferForegroundService : Service() {
         adbSourceServer = null
         sourceManifestBundle?.let { runCatching { it.close() } }
         sourceManifestBundle = null
+        currentReceiverTransferActive = false
         if (receiverStatus(this) != STATUS_ERROR) setReceiverStatus(STATUS_STOPPED)
         if (sourceStatus(this) != STATUS_ERROR) setSourceStatus(STATUS_STOPPED)
         super.onDestroy()
@@ -221,6 +243,7 @@ class TransferForegroundService : Service() {
         @Volatile private var currentReceiverStatus = STATUS_STOPPED
         @Volatile private var currentSourceStatus = STATUS_STOPPED
         @Volatile private var currentDurableProgress: DurableTransferProgress? = null
+        @Volatile private var currentReceiverTransferActive = false
         private val sourceBundleLock = Any()
         private var pendingSourceManifest: TransferManifestBundle? = null
 
@@ -276,6 +299,7 @@ class TransferForegroundService : Service() {
             receiverStatus = currentReceiverStatus,
             sourceStatus = currentSourceStatus,
             durableProgress = currentDurableProgress,
+            receiverTransferActive = currentReceiverTransferActive,
         )
 
         private fun setReceiverStatus(context: Context, status: String) {
@@ -312,6 +336,7 @@ data class TransferProgressSnapshot(
     val receiverStatus: String,
     val sourceStatus: String,
     val durableProgress: DurableTransferProgress?,
+    val receiverTransferActive: Boolean = false,
 ) {
     val progressFraction: Float?
         get() = durableProgress
@@ -319,14 +344,22 @@ data class TransferProgressSnapshot(
             ?.let { (it.receivedBytes.toDouble() / it.totalBytes.toDouble()).toFloat().coerceIn(0f, 1f) }
 
     fun statusText(): String = when {
+        receiverStatus == TransferForegroundService.STATUS_ERROR && durableProgress != null ->
+            "Не вдалося запустити приймач. Перевір стан служби; останній durable checkpoint збережено."
+        receiverStatus == TransferForegroundService.STATUS_ERROR ->
+            "Не вдалося запустити приймач. Перевір стан служби."
+        durableProgress != null && !receiverTransferActive && receiverStatus == TransferForegroundService.STATUS_LISTENING &&
+            durableProgress.totalBytes > 0L && durableProgress.receivedBytes < durableProgress.totalBytes ->
+            "Активна передача зараз не триває. Показано останній durable checkpoint; продовження не підтверджене."
         durableProgress != null && durableProgress.totalBytes <= 0L ->
             "Отриманий обсяг порожній; відсоток для нульового розміру не обчислюється."
         durableProgress != null && durableProgress.totalBytes > 0L && durableProgress.percent >= 100 ->
-            "Прийом завершено. Це ще не означає, що дані відновлено на пристрої."
-        durableProgress != null -> "Отримую дані; показано лише байти, підтверджені durable checkpoint."
+            "Усі байти мають durable checkpoint. Це ще не означає, що дані відновлено на пристрої."
+        durableProgress != null && receiverTransferActive ->
+            "Отримую дані; показано лише байти, підтверджені durable checkpoint."
+        durableProgress != null -> "Передача не активна; показано останній durable checkpoint."
         receiverStatus == TransferForegroundService.STATUS_STARTING -> "Запускається приймач…"
         receiverStatus == TransferForegroundService.STATUS_LISTENING -> "Приймач очікує Windows Station через USB/ADB."
-        receiverStatus == TransferForegroundService.STATUS_ERROR -> "Не вдалося запустити приймач. Перевір стан служби."
         sourceStatus == TransferForegroundService.STATUS_STARTING -> "Запускається Android-джерело…"
         sourceStatus == TransferForegroundService.STATUS_LISTENING -> "Джерело очікує Windows Station через USB/ADB."
         sourceStatus == TransferForegroundService.STATUS_ERROR -> "Не вдалося запустити джерело. Перевір підготовлений маніфест."

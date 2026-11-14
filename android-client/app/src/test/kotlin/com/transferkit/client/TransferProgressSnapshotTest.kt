@@ -2,6 +2,7 @@ package com.transferkit.client
 
 import com.transferkit.client.receiver.DurableTransferProgress
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,6 +23,7 @@ class TransferProgressSnapshotTest {
             receiverStatus = "LISTENING",
             sourceStatus = "STOPPED",
             durableProgress = DurableTransferProgress("opaque-id", 150, 100),
+            receiverTransferActive = true,
         )
 
         assertEquals(1f, snapshot.progressFraction!!, 0f)
@@ -50,8 +52,34 @@ class TransferProgressSnapshotTest {
         )
 
         assertEquals(
-            "Прийом завершено. Це ще не означає, що дані відновлено на пристрої.",
+            "Усі байти мають durable checkpoint. Це ще не означає, що дані відновлено на пристрої.",
             snapshot.statusText(),
         )
+    }
+
+    @Test
+    fun stalePartialCheckpointWhileListenerWaitsIsNotDescribedAsAnActiveTransfer() {
+        val snapshot = TransferProgressSnapshot(
+            receiverStatus = TransferForegroundService.STATUS_LISTENING,
+            sourceStatus = TransferForegroundService.STATUS_STOPPED,
+            durableProgress = DurableTransferProgress("opaque-id", 40, 100),
+            receiverTransferActive = false,
+        )
+
+        assertTrue(snapshot.statusText().contains("зараз не триває"))
+        assertTrue(snapshot.statusText().contains("останній durable checkpoint"))
+        assertFalse(snapshot.statusText().contains("Отримую дані"))
+    }
+
+    @Test
+    fun authenticatedActiveSessionIsDescribedAsReceiving() {
+        val snapshot = TransferProgressSnapshot(
+            receiverStatus = TransferForegroundService.STATUS_LISTENING,
+            sourceStatus = TransferForegroundService.STATUS_STOPPED,
+            durableProgress = DurableTransferProgress("opaque-id", 40, 100),
+            receiverTransferActive = true,
+        )
+
+        assertTrue(snapshot.statusText().contains("Отримую дані"))
     }
 }

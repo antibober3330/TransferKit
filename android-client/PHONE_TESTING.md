@@ -251,6 +251,10 @@ The read-only `DoBridge` now reports `DEVICE_OWNER_STATUS_UNAVAILABLE` if the `D
 
 `ReceiverStreamHandler` delegates UI progress reporting to a best-effort `DurableProgressReporter`. Checkpoint read exceptions, absent snapshots, and notification callback exceptions are contained inside the observer and cannot escape into the authenticated data stream after an ACK. Successful reads remain throttled to one per second, while manifest/final-receipt boundary snapshots bypass the interval. Three local JVM tests cover read recovery, callback exception isolation, and throttling. Android unit suite **142/142 passed**; debug and AndroidTest APKs assembled. No phone was used.
 
+## Authenticated receive session state for progress UI (2026-11-14)
+
+`UsbAdbReceiverServer` now notifies the foreground service only after successful authentication and clears active state in `finally` when that socket session ends. The UI distinguishes an active receive session from a listener waiting for another peer; partial durable bytes remain visible as the last checkpoint, not as live transfer progress. Two JVM tests cover live and stale-checkpoint wording. Android unit suite **144/144 passed**; debug and AndroidTest APKs assembled. No phone was used, so notification/session lifecycle on real devices remains unaccepted.
+
 ## MediaStoreRestorer deterministic JVM regressions (2026-11-14)
 
 `MediaStoreRestorer` now receives an injectable `MediaStoreEnvironment`, leaving Android `ContentResolver`/MediaStore operations in a platform adapter. Twelve synthetic JVM cases cover approval gating, category/MIME/API routing, zero-byte payload, pending-row write/readback/publish, exact already-present retry, corrupt markers, same-size source mutation, publish failure, and cleanup. The tests caught duplicate deletion of a newly created pending row on pre-publish integrity failures; production cleanup now runs once in the shared `finally` block. Android unit suite: **134/134 passed**; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded. No phones or user media were accessed. This does not replace API 29 or OEM MediaStore acceptance.

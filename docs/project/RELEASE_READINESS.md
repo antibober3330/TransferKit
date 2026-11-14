@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.13` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.13`, `versionCode=14`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.14` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.14`, `versionCode=15`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -26,6 +26,8 @@
 Source-only snapshot alpha.7 (`versionCode=8`) опубліковано у приватний GitHub `main` комітом `96b56932365093fa876022690bdedf060b18db6d` після alpha.6; push був fast-forward, попередню історію збережено. Android unit suite **115/115 passed**; `:app:assembleDebug` та `:app:assembleDebugAndroidTest` успішні. Пункт 050 має 14 детермінованих JVM coordinator regressions, але фізичний Android install prompt/final callback та реальний receipt-verified APK лишаються неперевіреними. APK та build artifacts до Git не включалися; release tag не створювався.
 
 Source-only snapshot alpha.8 (`versionCode=9`) опубліковано у приватний GitHub `main` комітом `28e5148afad4fe99cf722b004f1b1ee872f8750a` після alpha.7; push був fast-forward, попередню історію збережено. Android unit suite **117/117 passed**, Python suite **152/152 passed**, debug та AndroidTest APK збираються. Фізичний consent callback не перевірявся, оскільки телефони зараз недоступні; Shizuku manager на попередніх пристроях був відсутній. У Git не включалися APK/build artifacts; release tag не створювався.
+
+Source-only alpha.14 (`versionCode=15`) підготовлений для пунктів 048–049. ADB receiver окремо повідомляє автентифіковану session active/closed, а UI відрізняє live receive від listener-ready та останнього часткового checkpoint. Android unit **144/144 passed**, Python **152/152 passed**, debug та AndroidTest APK збираються. Жодні телефони не використовувалися; active notification/disconnect acceptance лишається відкритим. Alpha.13 поки останній опублікований snapshot; alpha.14 source-only без build artifacts/release tag.
 
 Source-only alpha.13 (`versionCode=14`) опубліковано у приватний GitHub `main` комітом `57ace6aa086c0129e0d4d04c5bc37a4070c1e228` після alpha.12 (`f70f8f9298ef74e583a37093fe9b1fe11d787ee5`); push пройшов fast-forward, remote HEAD звірено. Durable progress observer ізольовано: помилка checkpoint read або UI callback не перериває transport handler після ACK; додано три JVM regressions для failure recovery і throttle. Android unit **142/142 passed**, Python **152/152 passed**, debug та AndroidTest APK зібрані. Жодні телефони не використовувалися. Source-only без APK/build artifacts та release tag.
 

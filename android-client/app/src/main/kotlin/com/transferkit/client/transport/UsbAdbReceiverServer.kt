@@ -21,6 +21,7 @@ import kotlin.concurrent.withLock
 class UsbAdbReceiverServer(
     private val receiver: AndroidTransferReceiver,
     private val onDurableProgress: ((DurableTransferProgress) -> Unit)? = null,
+    private val onTransferSessionActive: ((Boolean) -> Unit)? = null,
 ) : Closeable {
     private val sessions = PendingSessionStore()
     private val workers: ExecutorService = Executors.newFixedThreadPool(2)
@@ -105,8 +106,13 @@ class UsbAdbReceiverServer(
         socket.outputStream.write(UsbAdbAuthProtocol.encodeAuthResult(pending.transferId, if (authenticated) 0 else 1))
         socket.outputStream.flush()
         if (authenticated) {
-            ReceiverStreamHandler(receiver, onDurableProgress)
-                .serve(socket.inputStream, socket.outputStream, pending.transferId)
+            runCatching { onTransferSessionActive?.invoke(true) }
+            try {
+                ReceiverStreamHandler(receiver, onDurableProgress)
+                    .serve(socket.inputStream, socket.outputStream, pending.transferId)
+            } finally {
+                runCatching { onTransferSessionActive?.invoke(false) }
+            }
         }
     }
 

@@ -2,18 +2,32 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.14] - 2026-11-14
+
+Source-only development snapshot; no release tag. Android `versionCode` is 15. This remains an alpha and is not a production release.
+
+### Android
+
+- Receiver server now reports the lifetime of an authenticated transfer session separately from listener readiness; the foreground notification and progress screen can distinguish “waiting” from “receiving” and “last checkpoint”.
+- The progress screen no longer describes a stale partial checkpoint as an active transfer after the socket session ends.
+- Added two synthetic JVM regressions for active-session and stale-checkpoint status text.
+
+### Validation
+
+- Android unit suite: 144/144 passed; debug and AndroidTest APK assemblies succeeded. No phones were used.
+
 ## [0.1.0-alpha.13] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `57ace6aa086c0129e0d4d04c5bc37a4070c1e228`; no release tag. Android `versionCode` is 14. This remains an alpha and is not a production release.
 
 ### Android
 
-- Receiver progress notifications now treat durable checkpoint reads and UI callbacks as a best-effort observer. A progress read/notification error cannot break the authenticated receiver stream after its ACK.
+- Receiver progress notifications treat durable checkpoint reads and UI callbacks as a best-effort observer. A progress read/notification error cannot break the authenticated receiver stream after its ACK.
 - Added three synthetic JVM regressions for checkpoint read failure recovery, callback failure isolation, and interval/forced-final throttling.
 
 ### Validation
 
-- Android unit suite: 142/142 passed; debug and AndroidTest APK assemblies succeeded. No phones were used.
+- Android unit suite: 142/142 passed; debug and AndroidTest APK assemblies succeeded. Python suite: 152/152 passed. No phones were used.
 
 ## [0.1.0-alpha.12] - 2026-11-14
 
