@@ -21,7 +21,7 @@
 
 Попередній source-only snapshot `0.1.0-alpha.5` опублікований у приватній гілці GitHub `main`, commit `b9ff696329737adfaff063ad020799797ea94a53`; Android versionCode=6. Перед commit пройшов `git diff --cached --check`; staged tree містив 56 source/config/doc files, без APK/AAB, `local.properties`, build/cache output і без відомих credential-pattern matches. Release tag не створювався; цей alpha не є production release.
 
-Поточний alpha.6 candidate (`versionCode=7`) зібрано локально після version bump: Android unit suite **101/101 passed**, `:app:assembleDebug` та `:app:assembleDebugAndroidTest` успішні. Debug APK не є release build і виключений із Git.
+Поточний source-only alpha.6 (`versionCode=7`) опубліковано у приватний GitHub `main` комітом `462b482a45a1112ca36c6a1be1d3f02bb76a742e`; віддалений `refs/heads/main` звірено з цим hash. До push: Android unit suite **101/101 passed**, `:app:assembleDebug` та `:app:assembleDebugAndroidTest` успішні, `git diff --cached --check` пройшов для 11 staged files, 0 APK/AAB та 0 відомих credential-pattern matches. Debug APK не є release build і виключений із Git. Release tag не створювався.
 
 Alpha.5 є source-only development snapshot; APK цієї версії не збирався в межах публікації. Раніше зібраний alpha.4 debug APK: `android-client/app/build/outputs/apk/debug/app-debug.apk`, 9 452 756 bytes, SHA-256 `608449FC585E0FD70B72CE74C19BE9E6839849537310405A55C4F2F32547C157`; `aapt dump badging` підтвердив package `com.transferkit.client`, versionCode=5, versionName=`0.1.0-alpha.4`. Build output виключена з Git.
 
