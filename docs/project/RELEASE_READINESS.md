@@ -259,3 +259,7 @@ Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and
 - Added strict `space-report.schema.json`/`space-decision.schema.json`, semantic Python contracts, and Kotlin wire-contract models. Known capacity/peaks must agree with the safety budget; unknown capacity/provider estimates become `insufficient` and authorize no items. Protocol examples are regression-validated.
 - Validation: nine new Python regressions; five Kotlin regressions; full Python suite 178/178 and Android unit suite 158/158 passed; debug and AndroidTest assemblies succeeded.
 - This is only the policy core. There is not yet a live `TKSP`/`TKSD` consumer or a Windows strategy dialog; checklist points 116–117 and end-to-end acceptance remain open before point 112 can be closed.
+
+## Alpha.17 source-only publication (2026-11-14)
+
+`0.1.0-alpha.17` (`versionCode=18`) опубліковано у приватний GitHub `main` fast-forward commit-ом `923a6e669e5e0e9cd729e456d2eadcf411a48809` після `c2ccd81f7e5c25c236a4d1c45bc35dc3b8ae335d`; remote HEAD звірено з commit. Snapshot містить 25 source/doc/test files, без APK/AAB/build/cache artifacts та відомих credential-pattern збігів. Python suite — 178/178; Android unit — 158/158; debug і AndroidTest assemblies успішні. Release tag не створювався. Пункт 111 закрито; 112 лишається частковим до runtime `TKSP/TKSD`, Windows UI та end-to-end acceptance. Телефони не використовувалися.
