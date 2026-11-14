@@ -2,13 +2,26 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.12] - 2026-11-14
+
+Source-only development snapshot; no release tag. Android `versionCode` is 13. This remains an alpha and is not a production release.
+
+### Android
+
+- Device Owner probing now distinguishes a failed `DevicePolicyManager` query from a confirmed non-owner state. The settings UI asks the user to retry instead of claiming Device Owner is inactive.
+- Added three read-only JVM regressions for confirmed owner, confirmed non-owner, and unavailable status. No policy operations or provisioning were added.
+
+### Validation
+
+- Android unit suite: 139/139 passed; debug and AndroidTest APK assemblies succeeded. No phones were used.
+
 ## [0.1.0-alpha.11] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `0c17d38dc0520a312205cfb3b9724de6cb663c00`; no release tag. Android `versionCode` is 12. This remains an alpha and is not a production release.
 
 ### Android
 
-- Shizuku probing now distinguishes an unknown/unavailable status from a confirmed missing permission. If the service or permission check throws, TransferKit shows a retry-oriented status and does not send another permission request.
+- Shizuku probing distinguishes an unknown/unavailable status from a confirmed missing permission. If the service or permission check throws, TransferKit shows a retry-oriented status and does not send another permission request.
 - Added fail-closed regressions for binder probe and permission-check failures.
 
 ### Validation

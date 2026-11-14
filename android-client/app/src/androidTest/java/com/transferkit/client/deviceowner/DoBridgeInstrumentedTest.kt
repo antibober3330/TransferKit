@@ -23,6 +23,7 @@ class DoBridgeInstrumentedTest {
         val result = DoBridge(context).probe()
 
         assertFalse(result.activeForThisApp)
+        assertTrue(result.statusAvailable)
         assertEquals("DEVICE_OWNER_REQUIRED", result.reasonCode)
         assertFalse(result.policyOperationsImplemented)
         assertTrue(result.provisioningWarning.contains("заводських налаштувань"))

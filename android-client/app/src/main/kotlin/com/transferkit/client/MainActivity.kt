@@ -1139,10 +1139,12 @@ class MainActivity : ComponentActivity() {
                     !access.shizukuPermissionGranted -> "Shizuku permission не надано"
                     else -> "Shizuku доступ підтверджений, але elevated settings операції ще не реалізовані"
                 }
-                val ownerStatus = if (access.deviceOwner) {
-                    "Device Owner активний для TransferKit"
-                } else {
-                    "${access.deviceOwnerReasonCode}; ${access.deviceOwnerProvisioningWarning}"
+                val ownerStatus = when {
+                    !access.deviceOwnerStatusAvailable ->
+                        "Не вдалося перевірити стан Device Owner; повтори перевірку. " +
+                            access.deviceOwnerProvisioningWarning
+                    access.deviceOwner -> "Device Owner активний для TransferKit"
+                    else -> "${access.deviceOwnerReasonCode}; ${access.deviceOwnerProvisioningWarning}"
                 }
                 val summary = "Прочитано ${access.publicSettingsRead}/${access.publicSettingsTotal} " +
                     "публічних ключів Settings.System; WRITE_SETTINGS approval: " +

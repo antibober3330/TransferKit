@@ -243,6 +243,10 @@ Moved the localized async grant/denial result text into a small policy helper an
 
 The Shizuku bridge now reports `SHIZUKU_STATUS_UNAVAILABLE` separately when `pingBinder()` or `checkSelfPermission()` throws. A failed permission check no longer becomes `PERMISSION_REQUIRED`, so it cannot trigger a misleading repeated prompt. Two synthetic JVM regressions verify that both failures fail closed and send no permission request. Android unit suite: **136/136 passed**; debug and AndroidTest APKs assembled successfully. No phones were used; Shizuku consent callback/service acceptance is still open.
 
+## Device Owner probe failure handling (2026-11-14)
+
+The read-only `DoBridge` now reports `DEVICE_OWNER_STATUS_UNAVAILABLE` if the `DevicePolicyManager` service/query throws, separately from a confirmed `DEVICE_OWNER_REQUIRED` result. `SettingsProvider` forwards that certainty to the UI, which asks the user to retry and retains the warning that TransferKit never provisions itself or requests a factory reset. Three synthetic JVM tests cover true, false, and unavailable results; Android unit suite **139/139 passed**, debug and AndroidTest APKs assembled. No Device Owner provisioning or phone test was performed.
+
 ## MediaStoreRestorer deterministic JVM regressions (2026-11-14)
 
 `MediaStoreRestorer` now receives an injectable `MediaStoreEnvironment`, leaving Android `ContentResolver`/MediaStore operations in a platform adapter. Twelve synthetic JVM cases cover approval gating, category/MIME/API routing, zero-byte payload, pending-row write/readback/publish, exact already-present retry, corrupt markers, same-size source mutation, publish failure, and cleanup. The tests caught duplicate deletion of a newly created pending row on pre-publish integrity failures; production cleanup now runs once in the shared `finally` block. Android unit suite: **134/134 passed**; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded. No phones or user media were accessed. This does not replace API 29 or OEM MediaStore acceptance.
