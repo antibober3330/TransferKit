@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.8` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.8`, `versionCode=9`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.9` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.9`, `versionCode=10`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -26,6 +26,8 @@
 Source-only snapshot alpha.7 (`versionCode=8`) опубліковано у приватний GitHub `main` комітом `96b56932365093fa876022690bdedf060b18db6d` після alpha.6; push був fast-forward, попередню історію збережено. Android unit suite **115/115 passed**; `:app:assembleDebug` та `:app:assembleDebugAndroidTest` успішні. Пункт 050 має 14 детермінованих JVM coordinator regressions, але фізичний Android install prompt/final callback та реальний receipt-verified APK лишаються неперевіреними. APK та build artifacts до Git не включалися; release tag не створювався.
 
 Source-only snapshot alpha.8 (`versionCode=9`) опубліковано у приватний GitHub `main` комітом `28e5148afad4fe99cf722b004f1b1ee872f8750a` після alpha.7; push був fast-forward, попередню історію збережено. Android unit suite **117/117 passed**, Python suite **152/152 passed**, debug та AndroidTest APK збираються. Фізичний consent callback не перевірявся, оскільки телефони зараз недоступні; Shizuku manager на попередніх пристроях був відсутній. У Git не включалися APK/build artifacts; release tag не створювався.
+
+Наступний source-only snapshot alpha.9 (`versionCode=10`) підготовлено з суворішим receipt-to-ticket binding у `ApkInstallStatusReceiver`: cleanup приймає лише точний APK category/item/package/version candidate з matching transfer/manifest/SHA. Додано 5 окремих callback-binding tests (non-APK item collision включно). Android unit suite **122/122 passed**; debug та AndroidTest APK збираються. Телефони недоступні; фізичний PackageInstaller prompt/callback і APK-only source flow залишаються відкритими. Публікацію виконати після source-only preflight та fast-forward push; APK/build artifacts не включати.
 
 Alpha.5 є source-only development snapshot; APK цієї версії не збирався в межах публікації. Раніше зібраний alpha.4 debug APK: `android-client/app/build/outputs/apk/debug/app-debug.apk`, 9 452 756 bytes, SHA-256 `608449FC585E0FD70B72CE74C19BE9E6839849537310405A55C4F2F32547C157`; `aapt dump badging` підтвердив package `com.transferkit.client`, versionCode=5, versionName=`0.1.0-alpha.4`. Build output виключена з Git.
 

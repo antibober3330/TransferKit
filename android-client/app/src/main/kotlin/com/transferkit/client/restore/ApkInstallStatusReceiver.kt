@@ -13,6 +13,21 @@ import android.widget.Toast
 import com.transferkit.client.receiver.AndroidTransferReceiver
 import java.util.concurrent.Executors
 
+/** Selects only the exact receipt-backed APK represented by a PackageInstaller ticket. */
+internal fun receiptBoundApkItem(
+    ticket: ApkInstallTicket,
+    candidates: List<VerifiedRestoreItem>,
+): VerifiedRestoreItem? = candidates.firstOrNull { item ->
+    val versionCode = (item.metadata["version_code"] as? Number)?.toLong()
+    item.transferId == ticket.transferId &&
+        item.manifestSha256 == ticket.manifestSha256 &&
+        item.categoryId == "apks" &&
+        item.itemId == ticket.itemId &&
+        item.sha256 == ticket.expectedSha256 &&
+        item.metadata["package_name"] == ticket.packageName &&
+        versionCode == ticket.expectedVersionCode
+}
+
 /** Receives the system installer result and records restore only after package/version checks. */
 class ApkInstallStatusReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -40,11 +55,10 @@ class ApkInstallStatusReceiver : BroadcastReceiver() {
                 val message = if (itemResult?.status == RestoreItemStatus.RESTORED) {
                     val recorded = runCatching {
                         AndroidTransferReceiver(appContext).use { receiver ->
-                            val item = receiver.verifiedRestoreItems(ticket.transferId).firstOrNull {
-                                it.itemId == ticket.itemId &&
-                                    it.manifestSha256 == ticket.manifestSha256 &&
-                                    it.sha256 == ticket.expectedSha256
-                            }
+                            val item = receiptBoundApkItem(
+                                ticket,
+                                receiver.verifiedRestoreItems(ticket.transferId),
+                            )
                             item != null && receiver.recordPostVerifiedRestore(item)
                         }
                     }.getOrDefault(false)

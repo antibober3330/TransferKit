@@ -234,3 +234,7 @@ The test cleanup scripts confirmed that `com.transferkit.client` and `com.transf
 ## Shizuku permission callback message policy (2026-11-14)
 
 Moved the localized async grant/denial result text into a small policy helper and added two JVM regressions. Android unit suite: **117/117**; Python suite: **152/152**; debug and AndroidTest APKs compile. The user confirmed phones are currently unavailable. SDK ADB 1.0.41 could not connect to its local daemon on ports 5037/5038 in sandbox; after the host daemon was started outside the sandbox, `adb devices -l` still listed no devices. No physical tests were attempted and no device state was changed.
+
+## APK installer receipt binding regression (2026-11-14)
+
+`ApkInstallStatusReceiver` now chooses a cleanup candidate only if the receipt-backed item matches transfer ID, manifest SHA-256, category `apks`, item ID, payload SHA-256, package name, and version code from the installer ticket. Five JVM cases verify the exact match and reject wrong category/transfer/manifest/package/version, including a media item that shares the APK identity bytes. Android unit suite: **122/122**; debug and AndroidTest APK builds succeed. Phones remain unavailable; no device state was changed.

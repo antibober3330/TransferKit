@@ -2,6 +2,21 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.9] - 2026-11-14
+
+Source-only development snapshot prepared for private GitHub `main`; no release tag. Android `versionCode` is 10. This remains an alpha and is not a production release.
+
+### Included
+
+- Hardened `ApkInstallStatusReceiver` receipt binding: the post-install cleanup candidate must match the ticket's transfer, manifest, APK category, item, SHA-256, package name, and version code.
+- Added five JVM regressions, including the collision case where a non-APK item shares the APK's item ID and bytes.
+
+### Validation and limits
+
+- Android unit suite: 122/122 passed; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded.
+- No phone was available. Physical PackageInstaller callback acceptance and APK-only source flow remain open.
+- This is a source-only alpha, not a production release.
+
 ## [0.1.0-alpha.8] - 2026-11-14
 
 Source-only development snapshot published to the private GitHub `main` as commit `28e5148afad4fe99cf722b004f1b1ee872f8750a`; no release tag. Android `versionCode` is 9. This remains an alpha and is not a production release.
