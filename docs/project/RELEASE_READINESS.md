@@ -27,7 +27,7 @@ Source-only snapshot alpha.7 (`versionCode=8`) опубліковано у пр�
 
 Source-only snapshot alpha.8 (`versionCode=9`) опубліковано у приватний GitHub `main` комітом `28e5148afad4fe99cf722b004f1b1ee872f8750a` після alpha.7; push був fast-forward, попередню історію збережено. Android unit suite **117/117 passed**, Python suite **152/152 passed**, debug та AndroidTest APK збираються. Фізичний consent callback не перевірявся, оскільки телефони зараз недоступні; Shizuku manager на попередніх пристроях був відсутній. У Git не включалися APK/build artifacts; release tag не створювався.
 
-Source-only alpha.16 (`versionCode=17`) містить progress point 110: Android read-only volume probe та Windows Relay destination estimate; Kotlin fake-platform tests і Python filesystem-probe tests додають deterministic coverage. Python suite — **169/169 passed**; Android unit suite — **148/148 passed**, debug та AndroidTest assemblies успішні. Alpha.15 лишається останнім опублікованим snapshot до виконання пункту 155. Телефони не використовувалися; фізичне storage/OEM acceptance та provider/UI integration відкриті.
+Source-only alpha.16 (`versionCode=17`) опублікована у приватний GitHub `main` commit-ом `951b249d582ded1831f714c15b3f82563fa6ddbb`. Зміни охоплюють progress point 110: Android read-only volume probe та Windows Relay destination estimate; Kotlin fake-platform tests і Python filesystem-probe tests додають deterministic coverage. Python suite — **169/169 passed**; Android unit suite — **148/148 passed**, debug та AndroidTest assemblies успішні. Телефони не використовувалися; фізичне storage/OEM acceptance та provider/UI integration відкриті. APK/build artifacts і release tag до snapshot не включали.
 
 Source-only alpha.13 (`versionCode=14`) опубліковано у приватний GitHub `main` комітом `57ace6aa086c0129e0d4d04c5bc37a4070c1e228` після alpha.12 (`f70f8f9298ef74e583a37093fe9b1fe11d787ee5`); push пройшов fast-forward, remote HEAD звірено. Durable progress observer ізольовано: помилка checkpoint read або UI callback не перериває transport handler після ACK; додано три JVM regressions для failure recovery і throttle. Android unit **142/142 passed**, Python **152/152 passed**, debug та AndroidTest APK зібрані. Жодні телефони не використовувалися. Source-only без APK/build artifacts та release tag.
 
@@ -236,6 +236,10 @@ Page-scoped keep-awake and dimmer interaction passed **1/1 on A72/API 34 and 1/1
 ## Per-volume Space Preflight implementation (2026-11-14)
 
 Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and `StatFs` available bytes, with separate staging/destination budgets and a larger fallback reserve. Windows Relay now has a no-write estimate for the selected output directory and format overhead. Local tests/build pass (Android 148/148, Python 169/169); no phones were tested. Runtime provider-to-volume mapping, UI/wire integration and physical OEM acceptance remain open.
+
+## Alpha.16 source-only publication (2026-11-14)
+
+`0.1.0-alpha.16` (Android `versionCode=17`) опубліковано у приватний GitHub `main` fast-forward commit-ом `951b249d582ded1831f714c15b3f82563fa6ddbb` після `45cb8d8ea692df318a834477b74a7838ea116bf2`; remote HEAD звірено. Snapshot містить 12 source/doc files, без APK/AAB/build/cache artifacts та відомих secret-pattern збігів. Python 169/169, Android 148/148, debug і AndroidTest assemblies успішні. Release tag не створювався.
 
 ## Alpha.14 source-only snapshot (2026-11-14)
 

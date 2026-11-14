@@ -4,7 +4,7 @@ This file tracks user-visible and protocol-level changes. The current project is
 
 ## [0.1.0-alpha.16] - 2026-11-14
 
-Source-only development snapshot prepared; publication commit will be recorded after push. Android `versionCode` is 17. This remains an alpha and is not a production release.
+Source-only development snapshot published to private GitHub `main` as commit `951b249d582ded1831f714c15b3f82563fa6ddbb`; no release tag. Android `versionCode` is 17. This remains an alpha and is not a production release.
 
 ### Space Preflight
 
