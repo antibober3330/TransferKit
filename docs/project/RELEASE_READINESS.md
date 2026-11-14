@@ -282,3 +282,7 @@ Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and
 - `PROJECT_SPEC.md`, `shared/CONTRACTS.md`, and `shared/protocol.md` require process-restart evidence, provider readback, and exactly one effect before expanding the category allowlist. Metadata identity alone and same-process retries do not qualify.
 - Validation: one new Python regression covering seven API/unknown categories and incomplete maps; two Kotlin regressions. Full Python suite 179/179; Android unit suite 170/170; debug and AndroidTest assemblies succeeded. No phones were used.
 - SpaceDecision has no runtime receiver/sender integration yet. Contacts/Calendar provider process-death fault-injection acceptance is also still missing, so this policy is a tested gate, not live transport behavior.
+
+## Alpha.19 source-only publication (2026-11-14)
+
+`0.1.0-alpha.19` (`versionCode=20`) was pushed to private GitHub `main` as commit `d37d39df02ac3124c6715237acdd7a13bf138a2e` after `c909c3cd3bbed4995b9f7c2b6df3ceae2864681f`. The fast-forward push succeeded and remote `refs/heads/main` matched local HEAD. The snapshot contains 14 source/doc/test files; APK/AAB/build/cache artifacts and known credential-pattern matches: 0. Python suite 179/179; Android unit suite 170/170; debug and AndroidTest assemblies succeeded. No release tag was created. Checklist 114 remains partial until live SpaceDecision dispatch and provider process-death acceptance.
