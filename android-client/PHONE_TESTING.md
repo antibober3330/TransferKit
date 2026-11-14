@@ -238,3 +238,7 @@ Moved the localized async grant/denial result text into a small policy helper an
 ## APK installer receipt binding regression (2026-11-14)
 
 `ApkInstallStatusReceiver` now chooses a cleanup candidate only if the receipt-backed item matches transfer ID, manifest SHA-256, category `apks`, item ID, payload SHA-256, package name, and version code from the installer ticket. Five JVM cases verify the exact match and reject wrong category/transfer/manifest/package/version, including a media item that shares the APK identity bytes. Android unit suite: **122/122**; debug and AndroidTest APK builds succeed. Phones remain unavailable; no device state was changed.
+
+## MediaStoreRestorer deterministic JVM regressions (2026-11-14)
+
+`MediaStoreRestorer` now receives an injectable `MediaStoreEnvironment`, leaving Android `ContentResolver`/MediaStore operations in a platform adapter. Twelve synthetic JVM cases cover approval gating, category/MIME/API routing, zero-byte payload, pending-row write/readback/publish, exact already-present retry, corrupt markers, same-size source mutation, publish failure, and cleanup. The tests caught duplicate deletion of a newly created pending row on pre-publish integrity failures; production cleanup now runs once in the shared `finally` block. Android unit suite: **134/134 passed**; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded. No phones or user media were accessed. This does not replace API 29 or OEM MediaStore acceptance.

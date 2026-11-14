@@ -2,6 +2,21 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.10] - 2026-11-14
+
+Source-only development snapshot; no release tag. Android `versionCode` is 11. This remains an alpha and is not a production release.
+
+### Included
+
+- Refactored `MediaStoreRestorer` behind an injectable platform boundary so its write, readback, publish, cleanup, and integrity behavior can be tested without a physical device.
+- Added 12 synthetic JVM regressions covering success, idempotent retries, pending rows, readback corruption, source mutation, publish failures, approval gating, invalid API/MIME routes, and zero-byte items.
+- Removed duplicate cleanup calls on integrity failures; a newly created pending row is now deleted once by the common `finally` cleanup.
+
+### Validation and limits
+
+- Android unit suite: 134/134 passed; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded.
+- No phone tests were run. API 29 and OEM MediaStore acceptance remain device-dependent and open.
+
 ## [0.1.0-alpha.9] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `3892748d29c377f927e4743b80ea6d145a7e750c`; no release tag. Android `versionCode` is 10. This remains an alpha and is not a production release.

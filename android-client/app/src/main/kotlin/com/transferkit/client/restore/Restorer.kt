@@ -1,6 +1,7 @@
 package com.transferkit.client.restore
 
 import android.content.ContentResolver
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.media.MediaScannerConnection
@@ -73,11 +74,36 @@ internal fun isFileMediaRestoreCategory(categoryId: String): Boolean =
 internal fun isSafDocumentRestoreCategory(categoryId: String): Boolean = categoryId == "documents"
 
 /** Restores file categories through app-owned MediaStore rows on Android 10 and newer. */
-class MediaStoreRestorer(
-    context: Context,
+internal data class MediaStoreDestination(
+    val categoryId: String,
+    val collection: String,
+    val relativePath: String,
+    val displayName: String,
+    val mimeType: String,
+)
+
+internal data class MediaStoreRow(val uri: String, val isPending: Boolean)
+
+/** Platform boundary lets the write/verify/publish state machine run in deterministic JVM tests. */
+internal interface MediaStoreEnvironment {
+    val sdkInt: Int
+    fun collectionFor(categoryId: String): String?
+    fun findExisting(destination: MediaStoreDestination): MediaStoreRow?
+    fun insertPending(destination: MediaStoreDestination): MediaStoreRow?
+    fun openOutput(row: MediaStoreRow): OutputStream?
+    fun openInput(row: MediaStoreRow): InputStream?
+    fun publish(row: MediaStoreRow): Boolean
+    fun delete(row: MediaStoreRow)
+}
+
+class MediaStoreRestorer internal constructor(
+    private val environment: MediaStoreEnvironment,
     private val approvalGate: RestoreApprovalGate,
 ) : CategoryRestorer {
-    private val resolver: ContentResolver = context.applicationContext.contentResolver
+    constructor(context: Context, approvalGate: RestoreApprovalGate) : this(
+        AndroidMediaStoreEnvironment(context.applicationContext),
+        approvalGate,
+    )
 
     override val categoryIds: Set<String> = setOf(
         "photos", "videos", "audio", "downloads",
@@ -88,7 +114,7 @@ class MediaStoreRestorer(
         if (!approvalGate.consume(approval, item)) {
             return RestoreItemResult(item.itemId, RestoreItemStatus.USER_ACTION_REQUIRED, "RESTORE_CONFIRMATION_REQUIRED")
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        if (environment.sdkInt < Build.VERSION_CODES.Q) {
             // API 26–28 needs a separate legacy public-directory implementation and permission flow.
             return failure(item, "API_UNAVAILABLE")
         }
@@ -99,13 +125,12 @@ class MediaStoreRestorer(
 
         val destination = destination(item) ?: return failure(item, "INVALID_MANIFEST")
         return try {
-            val existing = findExisting(destination, item)
+            val existing = environment.findExisting(destination)
             if (existing != null) {
-                val (uri, isPending) = existing
-                if (!verify(uri, item)) return integrityFailure(item)
-                if (isPending) {
-                    if (!publish(uri)) return failure(item, "TARGET_WRITE_FAILED")
-                    if (!verify(uri, item)) return integrityFailure(item)
+                if (!verify(existing, item)) return integrityFailure(item)
+                if (existing.isPending) {
+                    if (!environment.publish(existing)) return failure(item, "TARGET_WRITE_FAILED")
+                    if (!verify(existing.copy(isPending = false), item)) return integrityFailure(item)
                 }
                 RestoreItemResult(item.itemId, RestoreItemStatus.RESTORED)
             } else {
@@ -122,75 +147,41 @@ class MediaStoreRestorer(
         }
     }
 
-    private fun insertAndVerify(destination: Destination, item: VerifiedRestoreItem): RestoreItemResult {
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, destination.displayName)
-            put(MediaStore.MediaColumns.MIME_TYPE, destination.mimeType)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, destination.relativePath)
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-        val uri = resolver.insert(destination.collection, values)
+    private fun insertAndVerify(destination: MediaStoreDestination, item: VerifiedRestoreItem): RestoreItemResult {
+        val row = environment.insertPending(destination)
             ?: throw IOException("MediaStore did not create a destination row")
         var published = false
         try {
-            val output = resolver.openOutputStream(uri, "w")
+            val output = environment.openOutput(row)
                 ?: throw IOException("MediaStore destination could not be opened")
             val copiedDigest = item.payloadFile.inputStream().use { input ->
                 output.use { target -> copyAndDigest(input, target) }
             }
             if (copiedDigest.first != item.sizeBytes || copiedDigest.second != item.sha256) {
-                resolver.delete(uri, null, null)
                 return integrityFailure(item)
             }
-            if (!verify(uri, item)) {
-                resolver.delete(uri, null, null)
+            if (!verify(row, item)) {
                 return integrityFailure(item)
             }
-            if (!publish(uri)) throw IOException("MediaStore could not publish the verified item")
+            if (!environment.publish(row)) throw IOException("MediaStore could not publish the verified item")
             // The result is not final until the published destination row can be
             // read back and its exact bytes still match the manifest.
-            if (!verify(uri, item)) return integrityFailure(item)
+            if (!verify(row.copy(isPending = false), item)) return integrityFailure(item)
             published = true
             return RestoreItemResult(item.itemId, RestoreItemStatus.RESTORED)
         } finally {
             // A row created by this invocation is still private unless publish() succeeded.
-            if (!published) runCatching { resolver.delete(uri, null, null) }
+            if (!published) runCatching { environment.delete(row) }
         }
     }
 
-    private fun findExisting(destination: Destination, item: VerifiedRestoreItem): ExistingRow? {
-        val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.IS_PENDING)
-        val cursor = resolver.query(
-            destination.collection,
-            projection,
-            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
-            arrayOf(destination.displayName, destination.relativePath),
-            null,
-        ) ?: throw IOException("MediaStore query returned no cursor")
-        return cursor.use {
-            if (!it.moveToFirst()) return@use null
-            val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
-            val pendingIndex = it.getColumnIndex(MediaStore.MediaColumns.IS_PENDING)
-            val pending = pendingIndex >= 0 && it.getInt(pendingIndex) == 1
-            if (it.moveToNext()) throw IOException("TransferKit destination marker is ambiguous")
-            ExistingRow(Uri.withAppendedPath(destination.collection, id.toString()), pending)
-        }
-    }
-
-    private fun verify(uri: Uri, item: VerifiedRestoreItem): Boolean {
-        val input = resolver.openInputStream(uri) ?: return false
+    private fun verify(row: MediaStoreRow, item: VerifiedRestoreItem): Boolean {
+        val input = environment.openInput(row) ?: return false
         val (size, digest) = input.use(::digest)
         return size == item.sizeBytes && digest == item.sha256
     }
 
-    private fun publish(uri: Uri): Boolean = resolver.update(
-        uri,
-        ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
-        null,
-        null,
-    ) == 1
-
-    private fun destination(item: VerifiedRestoreItem): Destination? {
+    private fun destination(item: VerifiedRestoreItem): MediaStoreDestination? {
         val original = (item.metadata["path"] as? String)
             ?.replace('\\', '/')
             ?.substringAfterLast('/')
@@ -206,31 +197,16 @@ class MediaStoreRestorer(
         val mime = (item.metadata["mime_type"] as? String)
             ?.takeIf { it.length <= 128 && '\n' !in it && '\r' !in it }
             ?: "application/octet-stream"
-        val (collection, path, requiredMimePrefix) = when (item.categoryId) {
-            "photos" -> Triple(
-                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                "Pictures/TransferKit/",
-                "image/",
-            )
-            "videos" -> Triple(
-                MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                "Movies/TransferKit/",
-                "video/",
-            )
-            "audio" -> Triple(
-                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                "Music/TransferKit/",
-                "audio/",
-            )
-            "downloads" -> Triple(
-                MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                "Download/TransferKit/",
-                null,
-            )
+        val (relativePath, requiredMimePrefix) = when (item.categoryId) {
+            "photos" -> "Pictures/TransferKit/" to "image/"
+            "videos" -> "Movies/TransferKit/" to "video/"
+            "audio" -> "Music/TransferKit/" to "audio/"
+            "downloads" -> "Download/TransferKit/" to null
             else -> return null
         }
         if (requiredMimePrefix != null && !mime.startsWith(requiredMimePrefix)) return null
-        return Destination(collection, path, displayName, mime)
+        val collection = environment.collectionFor(item.categoryId) ?: return null
+        return MediaStoreDestination(item.categoryId, collection, relativePath, displayName, mime)
     }
 
     private fun failure(item: VerifiedRestoreItem, reason: String) =
@@ -238,15 +214,6 @@ class MediaStoreRestorer(
 
     private fun integrityFailure(item: VerifiedRestoreItem) =
         RestoreItemResult(item.itemId, RestoreItemStatus.FAILED_INTEGRITY, "SHA256_MISMATCH")
-
-    private data class Destination(
-        val collection: Uri,
-        val relativePath: String,
-        val displayName: String,
-        val mimeType: String,
-    )
-
-    private data class ExistingRow(val uri: Uri, val isPending: Boolean)
 
     private companion object {
         const val MAX_FILENAME_CHARS = 120
@@ -301,6 +268,65 @@ class MediaStoreRestorer(
             .toHex()
 
         fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+}
+
+private class AndroidMediaStoreEnvironment(context: Context) : MediaStoreEnvironment {
+    override val sdkInt: Int = Build.VERSION.SDK_INT
+    private val resolver: ContentResolver = context.contentResolver
+
+    override fun collectionFor(categoryId: String): String? = when (categoryId) {
+        "photos" -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY).toString()
+        "videos" -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY).toString()
+        "audio" -> MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY).toString()
+        "downloads" -> MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY).toString()
+        else -> null
+    }
+
+    override fun findExisting(destination: MediaStoreDestination): MediaStoreRow? {
+        val collection = Uri.parse(destination.collection)
+        val cursor = resolver.query(
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.IS_PENDING),
+            "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} = ?",
+            arrayOf(destination.displayName, destination.relativePath),
+            null,
+        ) ?: throw IOException("MediaStore query returned no cursor")
+        return cursor.use {
+            if (!it.moveToFirst()) return@use null
+            val id = it.getLong(it.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+            val pendingIndex = it.getColumnIndex(MediaStore.MediaColumns.IS_PENDING)
+            val pending = pendingIndex >= 0 && it.getInt(pendingIndex) == 1
+            if (it.moveToNext()) throw IOException("TransferKit destination marker is ambiguous")
+            MediaStoreRow(ContentUris.withAppendedId(collection, id).toString(), pending)
+        }
+    }
+
+    override fun insertPending(destination: MediaStoreDestination): MediaStoreRow? {
+        val uri = resolver.insert(
+            Uri.parse(destination.collection),
+            ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, destination.displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, destination.mimeType)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, destination.relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            },
+        ) ?: return null
+        return MediaStoreRow(uri.toString(), isPending = true)
+    }
+
+    override fun openOutput(row: MediaStoreRow): OutputStream? = resolver.openOutputStream(Uri.parse(row.uri), "w")
+    override fun openInput(row: MediaStoreRow): InputStream? = resolver.openInputStream(Uri.parse(row.uri))
+
+    override fun publish(row: MediaStoreRow): Boolean = resolver.update(
+        Uri.parse(row.uri),
+        ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+        null,
+        null,
+    ) == 1
+
+    override fun delete(row: MediaStoreRow) {
+        resolver.delete(Uri.parse(row.uri), null, null)
     }
 }
 
