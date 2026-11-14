@@ -125,6 +125,22 @@ data class SpaceDecisionContract(
             }
         }
     }
+
+    /** Validate against the complete manifest before any data chunk is accepted. */
+    fun validateForManifest(manifestItemCategories: Map<String, String>) {
+        validate()
+        if (strategy == SpaceStrategy.INSUFFICIENT) return
+
+        val authorizedIds = (keptItemIds + skippedItemIds).toSet()
+        require(manifestItemCategories.keys == authorizedIds) {
+            "Manifest category map must exactly cover kept and skipped IDs"
+        }
+        if (strategy == SpaceStrategy.STREAMING || strategy == SpaceStrategy.DROP_LARGEST) {
+            require(manifestItemCategories.values.all { it in STREAMING_FILE_CATEGORIES }) {
+                "Streaming and drop-largest are limited to file categories until API restore is process-death idempotent"
+            }
+        }
+    }
 }
 
 private fun validateTransferId(value: String) {
@@ -142,3 +158,4 @@ private const val SPACE_REPORT_VERSION = "1.0"
 private const val SPACE_PROTOCOL_VERSION = "2"
 private const val MAX_SPACE_ITEM_IDS = 100_000
 private const val MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991L
+private val STREAMING_FILE_CATEGORIES = setOf("photos", "videos", "audio", "documents", "downloads")

@@ -2,6 +2,16 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.19] - 2026-11-14
+
+Source-only development snapshot prepared for private GitHub `main`; no release tag. Android `versionCode` is 20. This remains an alpha and is not a production release.
+
+### Space strategy safety
+
+- Streaming and drop-largest are accepted only for manifests containing supported file categories with an exact category map. Contacts, calendar, SMS, call log, settings, APKs, and unknown categories remain batch-only until provider restore is proven idempotent across process death.
+- The protocol defines the required evidence: process restart around provider mutation/state commit, provider readback, and exactly one effect. A persistent metadata marker or same-process retry is insufficient.
+- Python suite: 179/179 passed. Kotlin unit suite: 170/170 passed; debug and AndroidTest APK assemblies succeeded. No phones were used. Runtime SpaceDecision dispatch and process-death provider acceptance remain open.
+
 ## [0.1.0-alpha.18] - 2026-11-14
 
 Source-only development snapshot published to the private GitHub `main` branch as commit `76b3791226fbf9adc4cd247f271a71888f7c3e04`; no release tag. Android `versionCode` is 19. This remains an alpha and is not a production release.

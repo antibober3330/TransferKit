@@ -62,6 +62,7 @@ class SpacePreflightTests(unittest.TestCase):
             ("0", "1"),
             selected_strategy=SpaceStrategy.STREAMING,
             user_confirmed=True,
+            manifest_item_categories={"0": "photos", "1": "videos"},
         )
         self.assertEqual(accepted.kept_item_ids, ("0", "1"))
 
@@ -73,10 +74,51 @@ class SpacePreflightTests(unittest.TestCase):
             (item.item_id for item in items),
             selected_strategy=SpaceStrategy.DROP_LARGEST,
             user_confirmed=True,
+            manifest_item_categories={"0": "photos", "1": "videos", "2": "downloads"},
         )
 
         self.assertEqual(accepted.kept_item_ids, ("0", "1"))
         self.assertEqual(accepted.skipped_item_ids, ("2",))
+
+    def test_streaming_and_drop_largest_require_exact_file_category_coverage(self):
+        streaming_items = estimates(30, 30)
+        streaming = calculate_space_preflight(
+            streaming_items, allocatable_bytes=100, safety_margin_bytes=0
+        )
+        with self.assertRaisesRegex(SpacePlanBlocked, "requires every manifest item category"):
+            accept_space_preflight(
+                streaming,
+                ("0", "1"),
+                selected_strategy=SpaceStrategy.STREAMING,
+                user_confirmed=True,
+            )
+        with self.assertRaisesRegex(SpacePlanBlocked, "category map does not match"):
+            accept_space_preflight(
+                streaming,
+                ("0", "1"),
+                selected_strategy=SpaceStrategy.STREAMING,
+                user_confirmed=True,
+                manifest_item_categories={"0": "photos"},
+            )
+
+        drop_items = estimates(10, 30, 40)
+        drop_largest = calculate_space_preflight(
+            drop_items, allocatable_bytes=100, safety_margin_bytes=0
+        )
+        for category in ("contacts", "calendar", "sms", "call_log", "settings", "apks", "unknown"):
+            with self.subTest(category=category):
+                with self.assertRaisesRegex(SpacePlanBlocked, "limited to file categories"):
+                    accept_space_preflight(
+                        drop_largest,
+                        (item.item_id for item in drop_items),
+                        selected_strategy=SpaceStrategy.DROP_LARGEST,
+                        user_confirmed=True,
+                        manifest_item_categories={
+                            "0": "photos",
+                            "1": category,
+                            "2": "downloads",
+                        },
+                    )
 
     def test_unknown_or_insufficient_estimates_fail_closed_even_with_user_approval(self):
         unknown = calculate_space_preflight(

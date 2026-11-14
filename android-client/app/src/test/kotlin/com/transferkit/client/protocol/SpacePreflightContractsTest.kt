@@ -70,9 +70,47 @@ class SpacePreflightContractsTest {
             skippedItemIds = emptyList(),
         )
         decision.validate()
+        decision.validateForManifest(mapOf("photo-1" to "photos"))
 
         assertThrows(IllegalArgumentException::class.java) {
             decision.copy(userConfirmed = false).validate()
+        }
+    }
+
+    @Test
+    fun streamingDecisionRequiresCompleteManifestAndFileOnlyCategories() {
+        val decision = SpaceDecisionContract(
+            version = "1.0",
+            protocolVersion = "2",
+            transferId = TEST_TRANSFER_ID,
+            strategy = SpaceStrategy.STREAMING,
+            userConfirmed = true,
+            keptItemIds = listOf("photo-1"),
+            skippedItemIds = emptyList(),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            decision.validateForManifest(emptyMap())
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            decision.validateForManifest(mapOf("photo-1" to "contacts"))
+        }
+    }
+
+    @Test
+    fun dropLargestCannotDropOrStreamApiRecords() {
+        val decision = SpaceDecisionContract(
+            version = "1.0",
+            protocolVersion = "2",
+            transferId = TEST_TRANSFER_ID,
+            strategy = SpaceStrategy.DROP_LARGEST,
+            userConfirmed = true,
+            keptItemIds = listOf("photo-1"),
+            skippedItemIds = listOf("contact-1"),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            decision.validateForManifest(mapOf("photo-1" to "photos", "contact-1" to "contacts"))
         }
     }
 

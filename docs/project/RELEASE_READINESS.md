@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.18` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.18`, `versionCode=19`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.19` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.19`, `versionCode=20`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -275,3 +275,10 @@ Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and
 ## Alpha.18 source-only publication (2026-11-14)
 
 `0.1.0-alpha.18` (`versionCode=19`) was pushed to private GitHub `main` as commit `76b3791226fbf9adc4cd247f271a71888f7c3e04` after `0466fc7a311099cf7931b07649efe7cee8db5cc4`. The fast-forward push succeeded and remote `refs/heads/main` was verified against local HEAD. The snapshot contains 12 source/doc/test files; APK/AAB/build/cache artifacts and known credential-pattern matches: 0. Python suite 178/178; Android unit suite 168/168; debug and AndroidTest assemblies succeeded. No release tag was created. Checklist 113 remains partial; item-level receive/restore wire handoff is not implemented.
+
+## API restore batch-only strategy guard (2026-11-14, checklist 114 partial)
+
+- Python `accept_space_preflight` and Kotlin `SpaceDecisionContract.validateForManifest` require exact item/category coverage before accepting non-batch strategy. Streaming/drop-largest are allowed only for `photos`, `videos`, `audio`, `documents`, and `downloads`; API/unknown categories fail closed.
+- `PROJECT_SPEC.md`, `shared/CONTRACTS.md`, and `shared/protocol.md` require process-restart evidence, provider readback, and exactly one effect before expanding the category allowlist. Metadata identity alone and same-process retries do not qualify.
+- Validation: one new Python regression covering seven API/unknown categories and incomplete maps; two Kotlin regressions. Full Python suite 179/179; Android unit suite 170/170; debug and AndroidTest assemblies succeeded. No phones were used.
+- SpaceDecision has no runtime receiver/sender integration yet. Contacts/Calendar provider process-death fault-injection acceptance is also still missing, so this policy is a tested gate, not live transport behavior.

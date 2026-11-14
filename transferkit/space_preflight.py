@@ -12,7 +12,7 @@ from enum import StrEnum
 from heapq import heappop, heappush
 from pathlib import Path
 from shutil import disk_usage
-from typing import Callable, Iterable, NamedTuple
+from typing import Callable, Iterable, Mapping, NamedTuple
 
 from .transport.backup_relay import (
     ENCRYPTED_RELAY_ENVELOPE_OVERHEAD_BYTES,
@@ -25,6 +25,7 @@ DEFAULT_MINIMUM_SAFETY_MARGIN_BYTES = 100 * MIB
 DEFAULT_SAFETY_MARGIN_DIVISOR = 20
 RELAY_FALLBACK_MINIMUM_MARGIN_BYTES = 200 * MIB
 RELAY_FALLBACK_MARGIN_DIVISOR = 10
+STREAMING_FILE_CATEGORIES = frozenset({"photos", "videos", "audio", "documents", "downloads"})
 
 
 class SpaceStrategy(StrEnum):
@@ -91,13 +92,16 @@ def accept_space_preflight(
     *,
     user_confirmed: bool,
     selected_strategy: SpaceStrategy | None = None,
+    manifest_item_categories: Mapping[str, str] | None = None,
 ) -> AcceptedSpacePlan:
     """Validate explicit approval before a planned transfer may start.
 
     A fitting batch plan is the default. Streaming and drop-largest need an
     explicit matching choice. Unknown estimates and insufficient space fail
     closed. The returned kept/skipped partition always covers the manifest
-    exactly and preserves manifest order.
+    exactly and preserves manifest order. Non-batch plans also require an exact
+    manifest category map and are limited to file categories until provider
+    restore is proven idempotent across process death.
     """
 
     item_ids = tuple(manifest_item_ids)
@@ -119,6 +123,16 @@ def accept_space_preflight(
         raise SpacePlanBlocked("streaming or drop-largest requires an explicit user choice")
     if not user_confirmed:
         raise SpacePlanBlocked("transfer plan has not been confirmed by the user")
+
+    if strategy in (SpaceStrategy.STREAMING, SpaceStrategy.DROP_LARGEST):
+        if manifest_item_categories is None:
+            raise SpacePlanBlocked("streaming eligibility requires every manifest item category")
+        if set(manifest_item_categories) != set(item_ids):
+            raise SpacePlanBlocked("manifest category map does not match the transfer manifest")
+        if any(category not in STREAMING_FILE_CATEGORIES for category in manifest_item_categories.values()):
+            raise SpacePlanBlocked(
+                "streaming and drop-largest are limited to file categories until API restore is process-death idempotent"
+            )
 
     expected_kept = result.kept_item_ids
     expected_skipped = result.skipped_item_ids
