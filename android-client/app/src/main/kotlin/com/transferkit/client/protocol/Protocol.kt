@@ -21,6 +21,11 @@ const val MAX_RECEIPT_BYTES: Int = 64 * 1024 * 1024
 const val FINISH_REQUEST_SIZE: Int = 21
 const val RECEIPT_RESPONSE_HEADER_SIZE: Int = 26
 const val SOURCE_IDENTITY_HEADER_SIZE: Int = 21
+const val ITEM_RESULT_ACK_SENTINEL: Long = 0xFFFF_FFFFL
+const val ITEM_RESULT_ACK_PROTOCOL_VERSION: Int = 2
+const val ITEM_RESULT_RESTORED_POST_VERIFIED: Int = 0
+const val ITEM_RESULT_RESTORE_FAILED: Int = 1
+const val ITEM_RESULT_FAILED_INTEGRITY: Int = 2
 const val MAX_UINT32: Long = 0xFFFF_FFFFL
 
 private val CHUNK_MAGIC = byteArrayOf(0x54, 0x4b, 0x43, 0x48) // TKCH
@@ -68,6 +73,7 @@ data class SourceIdentity(val transferId: UUID)
 enum class AckKind(val wireValue: Int) {
     MANIFEST(0),
     CHUNK(1),
+    ITEM_RESULT(2),
 }
 
 data class Acknowledgement(
@@ -251,10 +257,16 @@ object ProtocolCodec {
         ) {
             throw ProtocolException("Manifest ACK reserved fields must be zero")
         }
+        if (ack.kind == AckKind.ITEM_RESULT &&
+            (ack.chunkIndex != ITEM_RESULT_ACK_SENTINEL || ack.payloadCrc32 != 0L ||
+                ack.status !in ITEM_RESULT_RESTORED_POST_VERIFIED..ITEM_RESULT_FAILED_INTEGRITY)
+        ) {
+            throw ProtocolException("ItemResult ACK sentinel, reserved fields, or status is invalid")
+        }
 
         val frame = ByteBuffer.allocate(ACK_FRAME_SIZE).order(ByteOrder.BIG_ENDIAN)
         frame.put(ACK_MAGIC)
-        frame.put(PROTOCOL_VERSION.toByte())
+        frame.put((if (ack.kind == AckKind.ITEM_RESULT) ITEM_RESULT_ACK_PROTOCOL_VERSION else PROTOCOL_VERSION).toByte())
         frame.put(ack.kind.wireValue.toByte())
         frame.putUuid(ack.transferId)
         frame.put(ack.categoryIdHash)
@@ -270,10 +282,11 @@ object ProtocolCodec {
         val buffer = ByteBuffer.wrap(frame).order(ByteOrder.BIG_ENDIAN)
         if (!buffer.readBytes(4).contentEquals(ACK_MAGIC)) throw ProtocolException("Invalid ACK magic")
         val version = buffer.get().toInt() and 0xff
-        if (version != PROTOCOL_VERSION) throw ProtocolException("Unsupported ACK version: $version")
         val kindValue = buffer.get().toInt() and 0xff
         val kind = AckKind.entries.firstOrNull { it.wireValue == kindValue }
             ?: throw ProtocolException("Unknown ACK kind: $kindValue")
+        val expectedVersion = if (kind == AckKind.ITEM_RESULT) ITEM_RESULT_ACK_PROTOCOL_VERSION else PROTOCOL_VERSION
+        if (version != expectedVersion) throw ProtocolException("Unsupported ACK version $version for kind $kindValue")
         if (expectedKind != null && kind != expectedKind) throw ProtocolException("Unexpected ACK kind")
         val ack = Acknowledgement(
             kind = kind,
@@ -284,12 +297,22 @@ object ProtocolCodec {
             payloadCrc32 = buffer.getUInt32(),
             status = buffer.get().toInt() and 0xff,
         )
-        if (ack.status !in ACK_STATUS_MIN..ACK_STATUS_MAX) throw ProtocolException("Unknown ACK status")
+        val statusValid = if (kind == AckKind.ITEM_RESULT) {
+            ack.status in ITEM_RESULT_RESTORED_POST_VERIFIED..ITEM_RESULT_FAILED_INTEGRITY
+        } else {
+            ack.status in ACK_STATUS_MIN..ACK_STATUS_MAX
+        }
+        if (!statusValid) throw ProtocolException("Unknown ACK status")
         if (kind == AckKind.MANIFEST &&
             (ack.categoryIdHash.any { it != 0.toByte() } || ack.itemIdHash.any { it != 0.toByte() } ||
                 ack.chunkIndex != 0L || ack.payloadCrc32 != 0L)
         ) {
             throw ProtocolException("Manifest ACK reserved fields must be zero")
+        }
+        if (kind == AckKind.ITEM_RESULT &&
+            (ack.chunkIndex != ITEM_RESULT_ACK_SENTINEL || ack.payloadCrc32 != 0L)
+        ) {
+            throw ProtocolException("ItemResult ACK sentinel or reserved fields are invalid")
         }
         return ack
     }

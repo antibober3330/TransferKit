@@ -2,6 +2,17 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.20] - 2026-11-14
+
+Prepared source-only development snapshot; Android `versionCode` is 21. This remains an alpha and is not a production release.
+
+### Versioned Space and ItemResult frame codecs
+
+- Added bounded canonical JSON framing for `TKSP`/`TKSD`, with envelope `frame_version=1` separated from negotiated payload `protocol_version="2"`.
+- Added `TKAK kind=2/version=2` ItemResult ACK validation; v1 manifest/chunk acknowledgements keep their existing wire representation.
+- Added shared Python/Kotlin golden vectors and malformed-frame regressions. Python suite: 187/187 passed. Android unit suite: 173/173 passed; debug and AndroidTest assemblies succeeded. No phones were used.
+- Live SpaceReport/SpaceDecision dispatch, user confirmation, restore-bound ItemResult gating, and Recovery checkpoint version integration remain open.
+
 ## [0.1.0-alpha.19] - 2026-11-14
 
 Source-only development snapshot published to the private GitHub `main` branch as commit `d37d39df02ac3124c6715237acdd7a13bf138a2e`; no release tag. Android `versionCode` is 20. This remains an alpha and is not a production release.

@@ -292,3 +292,10 @@ Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and
 - The APK coordinator streams the receiver-owned item directly into `PackageInstaller.Session.openWrite()`, computes size/SHA-256 during write, calls `fsync`, and reopens/hashes session bytes before it yields a commit ticket. It creates no extra APK staging copy.
 - A short-lived, one-time approval is bound to the exact APK item and created only by its per-item confirmation dialog. Commit uses a ticket-bound status receiver and checks the installed package version before reporting `RESTORED`.
 - Validation: 14 coordinator, 5 approval-gate, and 5 status-receiver binding JVM regressions; Android unit suite 170/170; debug and AndroidTest assemblies succeeded. Physical PackageInstaller/OEM prompt acceptance remains open under item 120 and device acceptance.
+
+## Space and ItemResult framing codecs (checklist 116 partial, 2026-11-14)
+
+- Python and Kotlin now encode/decode bounded canonical JSON `TKSP`/`TKSD` frames. The envelope's `frame_version=1` is distinct from the required Space payload `protocol_version="2"`.
+- Added `TKAK kind=2/version=2` ItemResult ACK with the `0xffffffff` item sentinel, zero reserved CRC, and only the three specified restore/integrity outcomes. Existing manifest/chunk ACKs remain version 1.
+- Added shared golden vectors and malformed-frame/status regressions in both languages. Python suite 187/187; Android unit suite 173/173; debug and AndroidTest assemblies succeeded. No phones were used.
+- These are codecs only. No live target SpaceReport dispatch, source decision UI/dispatch, streaming restore callback, ItemResult gating, or recovery checkpoint version migration is wired yet. Do not treat streaming negotiation as implemented or accepted.

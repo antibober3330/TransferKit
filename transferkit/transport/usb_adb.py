@@ -25,6 +25,12 @@ ACK_MAGIC = b"TKAK"
 CONTROL_VERSION = 1
 ACK_KIND_MANIFEST = 0
 ACK_KIND_CHUNK = 1
+ACK_KIND_ITEM_RESULT = 2
+ACK_ITEM_RESULT_PROTOCOL_VERSION = 2
+ACK_ITEM_RESULT_SENTINEL = 0xFFFF_FFFF
+ITEM_RESULT_RESTORED_POST_VERIFIED = 0
+ITEM_RESULT_RESTORE_FAILED = 1
+ITEM_RESULT_FAILED_INTEGRITY = 2
 ACK_OK = 0
 ACK_REJECTED = 1
 ACK_CRC32_MISMATCH = 2
@@ -69,6 +75,60 @@ class ChunkAcknowledgement:
     chunk_index: int
     payload_crc32: int
     status: int
+
+
+@dataclass(frozen=True, slots=True)
+class ItemResultAcknowledgement:
+    """Version 2 ACK emitted only after destination restore post-verification."""
+
+    transfer_id: UUID
+    category_id_hash: bytes
+    item_id_hash: bytes
+    status: int
+
+
+def encode_item_result_ack(acknowledgement: ItemResultAcknowledgement) -> bytes:
+    if len(acknowledgement.category_id_hash) != 4 or len(acknowledgement.item_id_hash) != 4:
+        raise ValueError("ItemResult ACK identity hashes must be exactly 4 bytes")
+    if acknowledgement.status not in (
+        ITEM_RESULT_RESTORED_POST_VERIFIED,
+        ITEM_RESULT_RESTORE_FAILED,
+        ITEM_RESULT_FAILED_INTEGRITY,
+    ):
+        raise ValueError("Unknown ItemResult ACK status")
+    return ACK_STRUCT.pack(
+        ACK_MAGIC,
+        ACK_ITEM_RESULT_PROTOCOL_VERSION,
+        ACK_KIND_ITEM_RESULT,
+        acknowledgement.transfer_id.bytes,
+        acknowledgement.category_id_hash,
+        acknowledgement.item_id_hash,
+        ACK_ITEM_RESULT_SENTINEL,
+        0,
+        acknowledgement.status,
+    )
+
+
+def decode_item_result_ack(frame: bytes) -> ItemResultAcknowledgement:
+    if len(frame) != ACK_STRUCT.size:
+        raise ValueError("ItemResult ACK must be exactly 39 bytes")
+    magic, version, kind, transfer_raw, category_hash, item_hash, sentinel, crc, status = ACK_STRUCT.unpack(frame)
+    if magic != ACK_MAGIC or version != ACK_ITEM_RESULT_PROTOCOL_VERSION or kind != ACK_KIND_ITEM_RESULT:
+        raise ValueError("Invalid or unsupported ItemResult ACK header")
+    if sentinel != ACK_ITEM_RESULT_SENTINEL or crc != 0:
+        raise ValueError("ItemResult ACK sentinel or reserved CRC field is invalid")
+    if status not in (
+        ITEM_RESULT_RESTORED_POST_VERIFIED,
+        ITEM_RESULT_RESTORE_FAILED,
+        ITEM_RESULT_FAILED_INTEGRITY,
+    ):
+        raise ValueError("Unknown ItemResult ACK status")
+    return ItemResultAcknowledgement(
+        transfer_id=UUID(bytes=transfer_raw),
+        category_id_hash=category_hash,
+        item_id_hash=item_hash,
+        status=status,
+    )
 
 
 def _read_exact(connection: socket.socket, size: int) -> bytes:

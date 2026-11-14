@@ -127,6 +127,124 @@ class ProtocolTest {
     }
 
     @Test
+    fun spaceFramesAndItemResultAckMatchPythonVectors() {
+        val reportVector = vectors.getValue("space_report_frame").jsonObject
+        val report = SpaceReportContract(
+            version = "1.0",
+            protocolVersion = "2",
+            transferId = "00000000-0000-4000-8000-000000000001",
+            availableBytes = null,
+            allocatableBytes = null,
+            safetyMarginBytes = null,
+            safeAvailableBytes = null,
+            stagingLeftoverBytes = 0,
+            totalManifestBytes = 0,
+            largestItemBytes = 0,
+            batchPeakBytes = null,
+            streamingPeakBytes = null,
+            estimatesComplete = false,
+            unknownItemIds = emptyList(),
+            strategy = SpaceStrategy.INSUFFICIENT,
+            decisionRequired = true,
+            keptItemIds = emptyList(),
+            skippedItemIds = emptyList(),
+        )
+        val reportFrame = SpaceControlFrameCodec.encode(report)
+        assertEquals(reportVector.getValue("frame_hex").jsonPrimitive.content, reportFrame.toHex())
+        assertEquals(report, SpaceControlFrameCodec.decodeReport(reportFrame))
+        assertEquals(report, SpaceControlFrameCodec.readReport(ByteArrayInputStream(reportFrame)))
+
+        val decisionVector = vectors.getValue("space_decision_frame").jsonObject
+        val decision = SpaceDecisionContract(
+            version = "1.0",
+            protocolVersion = "2",
+            transferId = "00000000-0000-4000-8000-000000000001",
+            strategy = SpaceStrategy.INSUFFICIENT,
+            userConfirmed = false,
+            keptItemIds = emptyList(),
+            skippedItemIds = emptyList(),
+        )
+        val decisionFrame = SpaceControlFrameCodec.encode(decision)
+        assertEquals(decisionVector.getValue("frame_hex").jsonPrimitive.content, decisionFrame.toHex())
+        assertEquals(decision, SpaceControlFrameCodec.decodeDecision(decisionFrame))
+        assertEquals(decision, SpaceControlFrameCodec.readDecision(ByteArrayInputStream(decisionFrame)))
+
+        val itemVector = vectors.getValue("item_result_ack").jsonObject
+        val itemAck = Acknowledgement(
+            kind = AckKind.ITEM_RESULT,
+            transferId = UUID.fromString("00000000-0000-4000-8000-000000000001"),
+            categoryIdHash = "84a6dae4".hexToBytes(),
+            itemIdHash = "4ce1c689".hexToBytes(),
+            chunkIndex = ITEM_RESULT_ACK_SENTINEL,
+            payloadCrc32 = 0,
+            status = ITEM_RESULT_RESTORED_POST_VERIFIED,
+        )
+        val itemFrame = ProtocolCodec.encodeAcknowledgement(itemAck)
+        assertEquals(itemVector.getValue("frame_hex").jsonPrimitive.content, itemFrame.toHex())
+        val decodedItemAck = ProtocolCodec.decodeAcknowledgement(itemFrame, AckKind.ITEM_RESULT)
+        assertEquals(itemAck.kind, decodedItemAck.kind)
+        assertEquals(itemAck.transferId, decodedItemAck.transferId)
+        assertArrayEquals(itemAck.categoryIdHash, decodedItemAck.categoryIdHash)
+        assertArrayEquals(itemAck.itemIdHash, decodedItemAck.itemIdHash)
+        assertEquals(itemAck.chunkIndex, decodedItemAck.chunkIndex)
+        assertEquals(itemAck.payloadCrc32, decodedItemAck.payloadCrc32)
+        assertEquals(itemAck.status, decodedItemAck.status)
+    }
+
+    @Test
+    fun spaceFramesRejectWrongVersionMagicAndNonCanonicalJson() {
+        val valid = SpaceControlFrameCodec.encode(
+            SpaceDecisionContract(
+                version = "1.0",
+                protocolVersion = "2",
+                transferId = "00000000-0000-4000-8000-000000000001",
+                strategy = SpaceStrategy.INSUFFICIENT,
+                userConfirmed = false,
+                keptItemIds = emptyList(),
+                skippedItemIds = emptyList(),
+            ),
+        )
+        assertThrows(ProtocolException::class.java) {
+            SpaceControlFrameCodec.decode(valid, SpaceControlKind.REPORT)
+        }
+        val wrongVersion = valid.copyOf().also { it[4] = 2 }
+        assertThrows(ProtocolException::class.java) { SpaceControlFrameCodec.decode(wrongVersion) }
+
+        val nonCanonicalPayload = "{ \"version\":\"1.0\" }".toByteArray()
+        val nonCanonical = java.nio.ByteBuffer.allocate(SPACE_CONTROL_HEADER_SIZE + nonCanonicalPayload.size)
+            .order(java.nio.ByteOrder.BIG_ENDIAN)
+            .put("TKSD".toByteArray())
+            .put(SPACE_CONTROL_FRAME_VERSION.toByte())
+            .putInt(nonCanonicalPayload.size)
+            .put(nonCanonicalPayload)
+            .array()
+        assertThrows(ProtocolException::class.java) { SpaceControlFrameCodec.decode(nonCanonical) }
+    }
+
+    @Test
+    fun itemResultAckRejectsV1AndBadSentinel() {
+        val ack = Acknowledgement(
+            kind = AckKind.ITEM_RESULT,
+            transferId = UUID.fromString("00000000-0000-4000-8000-000000000001"),
+            categoryIdHash = "84a6dae4".hexToBytes(),
+            itemIdHash = "4ce1c689".hexToBytes(),
+            chunkIndex = ITEM_RESULT_ACK_SENTINEL,
+            payloadCrc32 = 0,
+            status = ITEM_RESULT_RESTORE_FAILED,
+        )
+        val valid = ProtocolCodec.encodeAcknowledgement(ack)
+        assertThrows(ProtocolException::class.java) {
+            ProtocolCodec.decodeAcknowledgement(valid.copyOf().also { it[4] = 1 })
+        }
+        assertThrows(ProtocolException::class.java) {
+            ProtocolCodec.decodeAcknowledgement(valid.copyOf().also { it[30] = 0 })
+        }
+        assertThrows(ProtocolException::class.java) {
+            ProtocolCodec.encodeAcknowledgement(ack.copy(chunkIndex = 0))
+        }
+    }
+
+    @Test
     fun usbAdbAuthenticationAndFinishFramesMatchSharedVectors() {
         val vector = vectors.getValue("usb_adb_auth").jsonObject
         val transferId = UUID.fromString(vector.getValue("transfer_id").jsonPrimitive.content)

@@ -17,8 +17,8 @@ android {
         applicationId = "com.transferkit.client"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "0.1.0-alpha.19"
+        versionCode = 21
+        versionName = "0.1.0-alpha.20"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
