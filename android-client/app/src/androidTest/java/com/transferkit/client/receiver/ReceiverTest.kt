@@ -98,6 +98,38 @@ class ReceiverTest {
     }
 
     @Test
+    fun settingsOnlyTransferIsListedAsRestorableInsteadOfUnavailable() {
+        val payload = "synthetic settings snapshot".toByteArray()
+        val transferId = UUID.randomUUID()
+        val active = newReceiver()
+        assertEquals(
+            ACK_OK,
+            active.acceptManifest(
+                manifest(
+                    transferId,
+                    payload,
+                    categoryId = "settings",
+                    itemId = "settings_fixture",
+                    metadata = "{\"setting_count\":1}",
+                ),
+            ).status,
+        )
+        assertEquals(
+            ACK_OK,
+            active.acceptChunk(
+                chunk(transferId, 0, 1, payload, categoryId = "settings", itemId = "settings_fixture"),
+            ).status,
+        )
+        active.buildFinalReceipt(transferId)
+
+        val summary = active.availableRestoreTransfers().single()
+        assertEquals(1, summary.verifiedItemCount)
+        assertEquals(1, summary.restorableSettingsItemCount)
+        assertEquals(payload.size.toLong(), summary.restorableSettingsBytes)
+        assertEquals(0, summary.unavailableVerifiedItemCount)
+    }
+
+    @Test
     fun receiverStreamReportsOnlyDurableCumulativeBytesAndFinalReceiptProgress() {
         val payload = "durable progress fixture".toByteArray()
         val transferId = UUID.randomUUID()
@@ -585,20 +617,33 @@ class ReceiverTest {
 
     private fun newReceiver(): AndroidTransferReceiver = AndroidTransferReceiver(context).also { receiver = it }
 
-    private fun manifest(transferId: UUID, payload: ByteArray): ByteArray {
+    private fun manifest(
+        transferId: UUID,
+        payload: ByteArray,
+        categoryId: String = CATEGORY_ID,
+        itemId: String = ITEM_ID,
+        metadata: String = "{}",
+    ): ByteArray {
         val sha256 = sha256(payload)
-        return """{"version":"1.0","transfer_id":"$transferId","created_at":"2026-11-12T00:00:00Z","source_device":{"manufacturer":"Fixture","model":"Fixture","sdk":33,"fingerprint":"fixture"},"categories":{"$CATEGORY_ID":{"provider":"test.provider","method":"fixture","items":[{"id":"$ITEM_ID","size":${payload.size},"sha256":"$sha256","metadata":{}}]}}}""".toByteArray()
+        return """{"version":"1.0","transfer_id":"$transferId","created_at":"2026-11-12T00:00:00Z","source_device":{"manufacturer":"Fixture","model":"Fixture","sdk":33,"fingerprint":"fixture"},"categories":{"$categoryId":{"provider":"test.provider","method":"fixture","items":[{"id":"$itemId","size":${payload.size},"sha256":"$sha256","metadata":$metadata}]}}}""".toByteArray()
     }
 
     private fun sha256(payload: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(payload)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
-    private fun chunk(transferId: UUID, index: Long, total: Long, payload: ByteArray): ByteArray =
+    private fun chunk(
+        transferId: UUID,
+        index: Long,
+        total: Long,
+        payload: ByteArray,
+        categoryId: String = CATEGORY_ID,
+        itemId: String = ITEM_ID,
+    ): ByteArray =
         com.transferkit.client.protocol.ProtocolCodec.encodeChunk(
             transferId,
-            CATEGORY_ID,
-            ITEM_ID,
+            categoryId,
+            itemId,
             index,
             total,
             payload,

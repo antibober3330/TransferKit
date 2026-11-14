@@ -29,6 +29,21 @@ enum class ShizukuPermissionRequestResult {
     REQUEST_FAILED,
 }
 
+/** Narrow adapter keeps state/permission decisions testable without a running Shizuku service. */
+internal interface ShizukuApi {
+    fun pingBinder(): Boolean
+    fun checkSelfPermission(): Int
+    fun isPreV11(): Boolean
+    fun requestPermission(requestCode: Int)
+}
+
+private object PlatformShizukuApi : ShizukuApi {
+    override fun pingBinder(): Boolean = Shizuku.pingBinder()
+    override fun checkSelfPermission(): Int = Shizuku.checkSelfPermission()
+    override fun isPreV11(): Boolean = Shizuku.isPreV11()
+    override fun requestPermission(requestCode: Int) = Shizuku.requestPermission(requestCode)
+}
+
 internal fun shizukuPermissionRequestMessage(result: ShizukuPermissionRequestResult): String = when (result) {
     ShizukuPermissionRequestResult.REQUEST_SENT ->
         "Підтверди запит у Shizuku. TransferKit не виконує privileged-команд."
@@ -45,9 +60,12 @@ internal fun shizukuPermissionRequestMessage(result: ShizukuPermissionRequestRes
 }
 
 /** Read-only availability probe. This bridge does not start a shell or execute privileged work. */
-class ShizukuBridge {
+internal class ShizukuBridge(
+    private val api: ShizukuApi = PlatformShizukuApi,
+    private val sdkInt: Int = Build.VERSION.SDK_INT,
+) {
     fun probe(): ShizukuProbe {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+        if (sdkInt < Build.VERSION_CODES.R) {
             return ShizukuProbe(
                 state = ShizukuState.UNSUPPORTED_API,
                 reasonCode = "API_UNAVAILABLE",
@@ -55,7 +73,7 @@ class ShizukuBridge {
                 permissionGranted = false,
             )
         }
-        val serviceRunning = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
+        val serviceRunning = runCatching { api.pingBinder() }.getOrDefault(false)
         if (!serviceRunning) {
             return ShizukuProbe(
                 state = ShizukuState.SERVICE_NOT_RUNNING,
@@ -65,7 +83,7 @@ class ShizukuBridge {
             )
         }
         val permissionGranted = runCatching {
-            Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+            api.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
         }.getOrDefault(false)
         return if (permissionGranted) {
             ShizukuProbe(
@@ -92,9 +110,9 @@ class ShizukuBridge {
             ShizukuState.SERVICE_NOT_RUNNING -> ShizukuPermissionRequestResult.SERVICE_NOT_RUNNING
             ShizukuState.AVAILABLE -> ShizukuPermissionRequestResult.PERMISSION_ALREADY_GRANTED
             ShizukuState.PERMISSION_REQUIRED -> {
-                if (runCatching { Shizuku.isPreV11() }.getOrDefault(true)) {
+                if (runCatching { api.isPreV11() }.getOrDefault(true)) {
                     ShizukuPermissionRequestResult.LEGACY_SERVER_UNSUPPORTED
-                } else if (runCatching { Shizuku.requestPermission(requestCode) }.isSuccess) {
+                } else if (runCatching { api.requestPermission(requestCode) }.isSuccess) {
                     ShizukuPermissionRequestResult.REQUEST_SENT
                 } else {
                     ShizukuPermissionRequestResult.REQUEST_FAILED

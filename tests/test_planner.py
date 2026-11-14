@@ -80,10 +80,20 @@ class PlannerTests(unittest.TestCase):
         photos = plan.categories[CategoryId.PHOTOS]
         self.assertEqual(photos.target_permissions, ["android.permission.WRITE_EXTERNAL_STORAGE"])
         self.assertTrue(any("API 26–28" in note and "WRITE_EXTERNAL_STORAGE" in note for note in photos.preflight_notes))
+        downloads = plan.categories[CategoryId.DOWNLOADS]
+        self.assertEqual(downloads.target_permissions, ["android.permission.WRITE_EXTERNAL_STORAGE"])
+        self.assertTrue(any("API 26–28" in note and "WRITE_EXTERNAL_STORAGE" in note for note in downloads.preflight_notes))
         self.assertEqual(
             plan.categories[CategoryId.APKS].target_permissions,
             ["android.permission.REQUEST_INSTALL_PACKAGES"],
         )
+
+        api_29_target = capability_manifest(
+            device=DeviceInfo(manufacturer="Xiaomi", model="Target", sdk=29, fingerprint="target")
+        )
+        api_29_downloads = build_transfer_plan(source, api_29_target).categories[CategoryId.DOWNLOADS]
+        self.assertEqual(api_29_downloads.target_permissions, [])
+        self.assertFalse(any("API 26–28" in note for note in api_29_downloads.preflight_notes))
 
     def test_partial_source_or_target_produces_partial_with_action(self) -> None:
         source = capability_manifest(

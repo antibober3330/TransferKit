@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ContentProviderOperation
 import android.content.ContentResolver
 import android.content.ContentValues
+import android.util.Log
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -87,7 +88,7 @@ class CalendarRestorer(
             val marker = eventMarker(item)
             val existing = findMarkedEvent(marker)
             if (existing != null) {
-                return if (existing.calendarId == calendarId && verifyEvent(existing.id, payload)) {
+                return if (existing.calendarId == calendarId && verifyEvent(existing.id, calendarId, payload)) {
                     RestoreItemResult(item.itemId, RestoreItemStatus.RESTORED)
                 } else {
                     failure(item, "DESTINATION_MISMATCH")
@@ -154,7 +155,7 @@ class CalendarRestorer(
         }
         resolver.applyBatch(Events.CONTENT_URI.authority!!, operations)
         val created = findMarkedEvent(marker) ?: return failure(item, "POST_VERIFY_MISMATCH")
-        if (created.calendarId != calendarId || !verifyEvent(created.id, payload)) {
+        if (created.calendarId != calendarId || !verifyEvent(created.id, calendarId, payload)) {
             deleteMarkedEvent(created.id, marker)
             return failure(item, "POST_VERIFY_MISMATCH")
         }
@@ -195,7 +196,7 @@ class CalendarRestorer(
         }
     }
 
-    private fun verifyEvent(eventId: Long, payload: CalendarEventPayload): Boolean {
+    private fun verifyEvent(eventId: Long, calendarId: Long, payload: CalendarEventPayload): Boolean {
         val projection = RESTORABLE_EVENT_FIELDS.map { it.column }.toTypedArray()
         val cursor = resolver.query(
             Events.CONTENT_URI,
@@ -204,17 +205,29 @@ class CalendarRestorer(
             arrayOf(eventId.toString()),
             null,
         ) ?: throw IOException("Calendar Provider returned no verification cursor")
-        val eventMatches = cursor.use {
-            if (!it.moveToFirst()) return@use false
-            RESTORABLE_EVENT_FIELDS.all { (jsonName, column, _) ->
-                val index = it.getColumnIndexOrThrow(column)
-                jsonEquivalent(payload.event[jsonName] ?: JsonNull, it, index)
-            }
+        val mismatchedFields = cursor.use { rows ->
+            if (!rows.moveToFirst()) return@use RESTORABLE_EVENT_FIELDS.map { it.jsonName }
+            RESTORABLE_EVENT_FIELDS.filterNot { (jsonName, column, _) ->
+                val index = rows.getColumnIndexOrThrow(column)
+                jsonEquivalent(payload.event[jsonName] ?: JsonNull, rows, index)
+            }.map { it.jsonName }
         }
-        return eventMatches && verifyChildren(eventId, payload.attendees, payload.reminders)
+        if (mismatchedFields.isNotEmpty()) {
+            // Log only schema field names. Calendar values can be sensitive and must never enter logs.
+            Log.w(LOG_TAG, "Post-verification mismatch fields=${mismatchedFields.joinToString(",")}")
+        }
+        val childrenMatch = verifyChildren(eventId, calendarId, payload.attendees, payload.reminders, payload.event)
+        if (!childrenMatch) Log.w(LOG_TAG, "Post-verification mismatch in attendee/reminder rows")
+        return mismatchedFields.isEmpty() && childrenMatch
     }
 
-    private fun verifyChildren(eventId: Long, attendees: List<JsonObject>, reminders: List<JsonObject>): Boolean {
+    private fun verifyChildren(
+        eventId: Long,
+        calendarId: Long,
+        attendees: List<JsonObject>,
+        reminders: List<JsonObject>,
+        event: JsonObject,
+    ): Boolean {
         val actualAttendees = readRows(
             Attendees.CONTENT_URI,
             ATTENDEE_FIELDS,
@@ -227,8 +240,53 @@ class CalendarRestorer(
             "${Reminders.EVENT_ID} = ?",
             eventId,
         )
-        return expectedRows(attendees, ATTENDEE_FIELDS) == actualAttendees &&
-            expectedRows(reminders, REMINDER_FIELDS) == actualReminders
+        val expectedAttendees = expectedRows(attendees, ATTENDEE_FIELDS)
+        val expectedReminders = expectedRows(reminders, REMINDER_FIELDS)
+        val normalizedAttendees = actualAttendees.toMutableList()
+        val generatedSelfAttendee = destinationSelfAttendeeRow(calendarId, event)
+        if (generatedSelfAttendee != null &&
+            normalizedAttendees.count { it == generatedSelfAttendee } > expectedAttendees.count { it == generatedSelfAttendee }
+        ) {
+            // CalendarProvider creates one destination-owner attendee from SELF_ATTENDEE_STATUS.
+            // Treat only that exact provider-generated row as local metadata, not as lost source data.
+            normalizedAttendees.remove(generatedSelfAttendee)
+        }
+        val attendeesMatch = expectedAttendees == normalizedAttendees
+        val remindersMatch = expectedReminders == actualReminders
+        if (!attendeesMatch || !remindersMatch) {
+            // Counts only: attendee/reminder values can reveal personal calendar details.
+            Log.w(
+                LOG_TAG,
+                "Child-row mismatch attendees=${expectedAttendees.size}/${actualAttendees.size} " +
+                    "reminders=${expectedReminders.size}/${actualReminders.size}",
+            )
+        }
+        return attendeesMatch && remindersMatch
+    }
+
+    private fun destinationSelfAttendeeRow(calendarId: Long, event: JsonObject): List<String?>? {
+        val status = event["selfAttendeeStatus"].intOrNull() ?: return null
+        val cursor = resolver.query(
+            Calendars.CONTENT_URI,
+            arrayOf(Calendars.OWNER_ACCOUNT),
+            "${Calendars._ID} = ?",
+            arrayOf(calendarId.toString()),
+            null,
+        ) ?: throw IOException("Calendar Provider returned no owner-account cursor")
+        val owner = cursor.use {
+            if (!it.moveToFirst() || it.isNull(it.getColumnIndexOrThrow(Calendars.OWNER_ACCOUNT))) {
+                null
+            } else {
+                it.getString(it.getColumnIndexOrThrow(Calendars.OWNER_ACCOUNT))
+            }
+        } ?: return null
+        return listOf(
+            null,
+            owner,
+            Attendees.RELATIONSHIP_ATTENDEE.toString(),
+            Attendees.TYPE_NONE.toString(),
+            status.toString(),
+        )
     }
 
     private fun readRows(uri: Uri, fields: List<ProviderField>, selection: String, eventId: Long): List<List<String?>> {
@@ -267,6 +325,7 @@ class CalendarRestorer(
         RestoreItemResult(item.itemId, RestoreItemStatus.FAILED_INTEGRITY, "SHA256_MISMATCH")
 
     companion object {
+        private const val LOG_TAG = "TransferKitCalendarRestore"
         private const val FORMAT = "transferkit-calendar-event-json"
         private const val MAX_PAYLOAD_BYTES = 4L * 1024L * 1024L
         private val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")

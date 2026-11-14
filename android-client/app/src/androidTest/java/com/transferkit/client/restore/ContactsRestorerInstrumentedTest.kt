@@ -10,6 +10,7 @@ import java.security.MessageDigest
 import java.util.UUID
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -20,6 +21,11 @@ class ContactsRestorerInstrumentedTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val resolver = context.contentResolver
+        val missingPermissions = listOf(
+            android.Manifest.permission.READ_CONTACTS,
+            android.Manifest.permission.WRITE_CONTACTS,
+        ).filter { context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        assumeTrue("Pre-grant synthetic Contacts Provider test permissions with ADB: $missingPermissions", missingPermissions.isEmpty())
         assertEquals(PackageManager.PERMISSION_GRANTED, context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS))
         assertEquals(PackageManager.PERMISSION_GRANTED, context.checkSelfPermission(android.Manifest.permission.WRITE_CONTACTS))
 

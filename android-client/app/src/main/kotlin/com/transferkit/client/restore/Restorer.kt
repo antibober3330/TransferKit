@@ -61,11 +61,16 @@ interface CategoryRestorer {
     ): RestoreItemResult = restore(item, approval)
 }
 
-data class RestoreContext(val calendarDestinationId: Long? = null)
+data class RestoreContext(
+    val calendarDestinationId: Long? = null,
+    val documentTreeUri: Uri? = null,
+)
 
 /** Supported by the registered API-specific adapters on the app's minSdk 26 range. */
 internal fun isFileMediaRestoreCategory(categoryId: String): Boolean =
     categoryId in setOf("photos", "videos", "audio", "downloads")
+
+internal fun isSafDocumentRestoreCategory(categoryId: String): Boolean = categoryId == "documents"
 
 /** Restores file categories through app-owned MediaStore rows on Android 10 and newer. */
 class MediaStoreRestorer(
@@ -520,6 +525,9 @@ class RestorerRegistry(restorers: List<CategoryRestorer>) {
             }
         }
     }
+
+    val supportedCategoryIds: Set<String>
+        get() = adaptersByCategory.keys
 
     fun restore(
         item: VerifiedRestoreItem,

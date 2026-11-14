@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from .contracts import CategoryId, DeviceInfo, ManifestCategory, ManifestItem, TransferManifest
-from .device_detect import AdbClient
+from .device_detect import AdbClient, AdbError
 from .report import write_receipt_json
 from .transport.usb_adb import TransportError, UsbAdbTransport
 
@@ -53,8 +53,8 @@ def run_smoke(
     payload = bytes(range(256)) * 256
     manifest = _synthetic_manifest(payload)
     item = manifest.categories[CategoryId.DOCUMENTS].items[0]
-    adb = AdbClient(executable=adb_executable, command_timeout=20.0)
     try:
+        adb = AdbClient(executable=adb_executable, command_timeout=20.0)
         with tempfile.TemporaryDirectory(prefix="transferkit-usb-adb-smoke-") as folder:
             source = Path(folder) / "fixture.bin"
             source.write_bytes(payload)
@@ -69,7 +69,7 @@ def run_smoke(
                     chunk_size=4 * 1024,
                 )
                 receipt = transport.finish_transfer()
-    except (OSError, ValueError, TransportError) as exc:
+    except (AdbError, OSError, ValueError, TransportError) as exc:
         print(f"USB/ADB smoke failed: {exc}")
         return 1
 

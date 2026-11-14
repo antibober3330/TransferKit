@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import struct
 import zlib
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ RECOMMENDED_CHUNK_SIZE = 4 * 1024 * 1024
 MAX_CHUNK_SIZE = 8 * 1024 * 1024
 CHUNK_HEADER = struct.Struct(">4sB16s4s4sIIII")
 CHUNK_HEADER_SIZE = CHUNK_HEADER.size
+_SHA256_HEX_RE = re.compile(r"[a-f0-9]{64}\Z")
 
 if CHUNK_HEADER_SIZE != 45:  # guard against accidental wire-contract drift
     raise RuntimeError(f"invalid TransferKit chunk header size: {CHUNK_HEADER_SIZE}")
@@ -61,10 +63,10 @@ def sha256_file(path: str | Path, block_size: int = 1024 * 1024) -> str:
 
 
 def verify_sha256(data: bytes, expected_hex: str) -> bool:
-    if len(expected_hex) != 64:
+    if not isinstance(expected_hex, str) or _SHA256_HEX_RE.fullmatch(expected_hex) is None:
         return False
     actual = sha256_bytes(data)
-    return hmac.compare_digest(actual, expected_hex.lower())
+    return hmac.compare_digest(actual, expected_hex)
 
 
 def crc32_bytes(data: bytes) -> int:

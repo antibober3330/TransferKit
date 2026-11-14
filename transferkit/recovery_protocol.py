@@ -72,12 +72,18 @@ def read_recovery_frame(
 ) -> RecoveryFrame:
     header = _read_exact(stream, _HEADER.size)
     magic, version, payload_size = _HEADER.unpack(header)
+    try:
+        kind = RecoveryFrameKind(magic.decode("ascii"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("Unknown Recovery frame magic") from exc
+    if expected_kind is not None and kind != expected_kind:
+        raise ValueError("Unexpected Recovery frame kind")
     if version != FRAME_VERSION:
         raise ValueError(f"Unsupported Recovery frame version: {version}")
     if payload_size == 0 or payload_size > MAX_RECOVERY_PAYLOAD_BYTES:
         raise ValueError("Recovery payload size is outside the allowed range")
     payload = _read_exact(stream, payload_size)
-    return decode_recovery_frame(header + payload, expected_kind=expected_kind)
+    return RecoveryFrame(kind=kind, document=_validate_payload(payload))
 
 
 def _validate_payload(payload: bytes) -> dict[str, object]:

@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import hashlib
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID
 
 from transferkit.integrity import (
@@ -60,6 +61,18 @@ class IntegrityTests(unittest.TestCase):
             self.assertFalse(verify_sha256(content, "f" * 64))
             frames = list(iter_file_chunks(path, TRANSFER_ID, "photos", "p1", len(content), chunk_size=4))
         self.assertEqual([decode_chunk(frame).payload for frame in frames], [b"abcd", b"efgh", b"ij"])
+
+    def test_hash_verification_requires_canonical_lowercase_hex(self) -> None:
+        content = b"TransferKit canonical digest"
+        digest = sha256_bytes(content)
+        self.assertNotEqual(digest, digest.upper())
+        self.assertTrue(verify_sha256(content, digest))
+        self.assertFalse(verify_sha256(content, digest.upper()))
+        malformed = ("g" * 64, " " + "a" * 63, "a" * 65, "", None, 123)
+        with patch("transferkit.integrity.sha256_bytes", side_effect=AssertionError("must not hash invalid input")):
+            for expected in malformed:
+                with self.subTest(expected=expected):
+                    self.assertFalse(verify_sha256(content, expected))
 
     def test_zero_byte_file_produces_one_empty_chunk(self) -> None:
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:

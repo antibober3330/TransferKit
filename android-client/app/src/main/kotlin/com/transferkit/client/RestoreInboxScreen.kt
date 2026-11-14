@@ -55,7 +55,7 @@ fun RestoreInboxScreen(
                         if (transfer.restoredItemCount > 0) {
                             Text("Вже відновлено й прибрано з тимчасового сховища: ${transfer.restoredItemCount}")
                         }
-                        Text("Медіафайлів для відновлення: ${transfer.restorableItemCount}")
+                        Text("Файлів і медіа для відновлення: ${transfer.restorableItemCount}")
                         Text("Обсяг: ${formatRestoreBytes(transfer.restorableBytes)}")
                         Text("Контактів для локального відновлення: ${transfer.restorableContactItemCount}")
                         if (transfer.restorableContactItemCount > 0) {
@@ -66,6 +66,11 @@ fun RestoreInboxScreen(
                         if (transfer.restorableCalendarItemCount > 0) {
                             Text("Перед записом можна буде явно вибрати календар і акаунт призначення.")
                             Text("Обсяг календарних даних: ${formatRestoreBytes(transfer.restorableCalendarBytes)}")
+                        }
+                        Text("Наборів публічних системних параметрів для відновлення: ${transfer.restorableSettingsItemCount}")
+                        if (transfer.restorableSettingsItemCount > 0) {
+                            Text("Відновлюються лише дозволені параметри Settings.System після окремого системного підтвердження Android.")
+                            Text("Обсяг даних параметрів: ${formatRestoreBytes(transfer.restorableSettingsBytes)}")
                         }
                         Text("Перевірених APK для встановлення: ${transfer.restorableApkItemCount}")
                         if (transfer.restorableApkItemCount > 0) {
@@ -79,10 +84,10 @@ fun RestoreInboxScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Button(
-                            enabled = (transfer.restorableItemCount > 0 || transfer.restorableContactItemCount > 0 || transfer.restorableCalendarItemCount > 0) && !restoring && !loading,
+                            enabled = (transfer.restorableItemCount > 0 || transfer.restorableContactItemCount > 0 || transfer.restorableCalendarItemCount > 0 || transfer.restorableSettingsItemCount > 0) && !restoring && !loading,
                             onClick = { onReview(transfer.transferId) },
                         ) {
-                            Text("Переглянути й відновити медіафайли, контакти та календар")
+                            Text("Переглянути й відновити файли, медіа, контакти, календар і параметри")
                         }
                         Button(
                             enabled = transfer.restorableApkItemCount > 0 && !restoring && !loading,

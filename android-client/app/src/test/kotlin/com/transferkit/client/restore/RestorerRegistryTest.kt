@@ -15,6 +15,8 @@ class RestorerRegistryTest {
         assertEquals(true, isFileMediaRestoreCategory("downloads"))
         assertEquals(false, isFileMediaRestoreCategory("contacts"))
         assertEquals(false, isFileMediaRestoreCategory("calendar"))
+        assertEquals(true, isSafDocumentRestoreCategory("documents"))
+        assertEquals(false, isSafDocumentRestoreCategory("downloads"))
     }
 
     @Test

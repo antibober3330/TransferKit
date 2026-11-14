@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name="com.transferkit.client.restore.SyntheticDocumentsProvider"
+            android:authorities="com.transferkit.client.test.synthetic-documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:label="TransferKit synthetic SAF test provider" />
+    </application>
+</manifest>

@@ -13,6 +13,7 @@ from transferkit.contracts import (
     MAX_MANIFEST_ITEMS,
     CategoryId,
     CapabilityManifest,
+    ReportDecision,
     ReasonCode,
     ReportStatus,
     TransferManifest,
@@ -262,37 +263,19 @@ class ContractModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_document(payload, "receipt.schema.json")
 
-    def test_recovery_and_space_decision_codes_are_known_and_schema_valid(self) -> None:
-        decision_codes = (
-            ReasonCode.RESUME_AVAILABLE,
-            ReasonCode.RESUME_NOT_POSSIBLE,
-            ReasonCode.CHECKPOINT_EXPIRED,
-            ReasonCode.SOURCE_DEVICE_MISMATCH,
-            ReasonCode.TARGET_DEVICE_MISMATCH,
-            ReasonCode.SOURCE_MANIFEST_CHANGED,
-            ReasonCode.INCOMPATIBLE_PROTOCOL_VERSION,
-            ReasonCode.STAGING_CORRUPTED,
-            ReasonCode.USER_CHOSE_RESTART,
-            ReasonCode.USER_CHOSE_ABANDON,
-            ReasonCode.TARGET_SPACE_INSUFFICIENT,
-            ReasonCode.TARGET_ITEM_TOO_LARGE,
-            ReasonCode.STAGING_CLEARED,
-            ReasonCode.USER_CHOSE_STREAMING,
-            ReasonCode.USER_CHOSE_DROP_LARGEST,
-            ReasonCode.USER_CHOSE_CLEAR_SPACE,
-            ReasonCode.TARGET_SPACE_INSUFFICIENT,
-            ReasonCode.TARGET_ITEM_TOO_LARGE,
-            ReasonCode.STAGING_CLEARED,
-            ReasonCode.USER_CHOSE_STREAMING,
-            ReasonCode.USER_CHOSE_DROP_LARGEST,
-            ReasonCode.USER_CHOSE_CLEAR_SPACE,
-        )
+    def test_all_reason_codes_match_schema_and_report_decisions_validate(self) -> None:
+        reason_pattern = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
+        decisions = []
+        for code in ReasonCode:
+            with self.subTest(code=code.value):
+                self.assertRegex(code.value, reason_pattern)
+                decision = ReportDecision(reason=code, item_ids=[])
+                decisions.append(decision.model_dump(mode="json"))
+
         payload = valid_report()
-        payload["decisions"] = [
-            {"reason": reason.value, "item_ids": []}
-            for reason in decision_codes
-        ]
+        payload["decisions"] = decisions
         validate_document(payload, "report.schema.json")
+        TransferReport.model_validate(payload)
 
     def test_json_schema_rejects_invalid_id_hash_and_offset_timestamp(self) -> None:
         payload = valid_manifest()

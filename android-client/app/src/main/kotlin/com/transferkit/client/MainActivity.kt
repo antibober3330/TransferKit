@@ -29,8 +29,12 @@ import com.transferkit.client.restore.LegacyMediaRestorer
 import com.transferkit.client.restore.MediaStoreRestorer
 import com.transferkit.client.restore.ContactsRestorer
 import com.transferkit.client.restore.CalendarRestorer
+import com.transferkit.client.restore.SettingsSystemRestorer
 import com.transferkit.client.restore.CalendarDestination
 import com.transferkit.client.restore.CalendarDestinationDialog
+import com.transferkit.client.restore.SafDocumentRestorer
+import com.transferkit.client.restore.SafDocumentTreeAccess
+import com.transferkit.client.restore.SafDocumentTreeSelection
 import com.transferkit.client.restore.RestoreApproval
 import com.transferkit.client.restore.RestoreApprovalGate
 import com.transferkit.client.restore.RestoreItemStatus
@@ -38,6 +42,7 @@ import com.transferkit.client.restore.RestorerRegistry
 import com.transferkit.client.restore.RestoreContext
 import com.transferkit.client.restore.RestoreConfirmationDialog
 import com.transferkit.client.restore.VerifiedRestoreItem
+import com.transferkit.client.restore.isFileMediaRestoreCategory
 import com.transferkit.client.restore.ApkInstallApproval
 import com.transferkit.client.restore.ApkInstallCoordinator
 import com.transferkit.client.restore.ApkInstallStatusReceiver
@@ -70,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private var pendingRestoreReviewTransferId: String? = null
     private var pendingContactRestoreTransferId: String? = null
     private var pendingCalendarRestoreTransferId: String? = null
+    private var pendingSettingsRestoreTransferId: String? = null
     private val selectedManifestSources = linkedMapOf<String, ManifestCategorySource>()
     private lateinit var sourceDeviceInfo: DeviceInfo
     private var preparedManifestBundle: TransferManifestBundle? = null
@@ -86,8 +92,11 @@ class MainActivity : ComponentActivity() {
     private var receivedTransfers by mutableStateOf<List<ReceivedTransferSummary>>(emptyList())
     private var selectedRestoreItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
     private var pendingCalendarItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
+    private var pendingDocumentRestoreItems = emptyList<VerifiedRestoreItem>()
     private var calendarDestinations by mutableStateOf<List<CalendarDestination>>(emptyList())
     private var selectedCalendarDestination: CalendarDestination? = null
+    private var selectedDocumentTreeSelection: SafDocumentTreeSelection? = null
+    private var documentDestinationName by mutableStateOf<String?>(null)
     private var selectedApkItems by mutableStateOf<List<VerifiedRestoreItem>>(emptyList())
     private var selectedApkItem by mutableStateOf<VerifiedRestoreItem?>(null)
     private var apkResultReceiverRegistered = false
@@ -181,6 +190,38 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val restoreDocumentsTreePicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        val items = pendingDocumentRestoreItems
+        pendingDocumentRestoreItems = emptyList()
+        if (items.isEmpty()) return@registerForActivityResult
+        if (uri == null) {
+            selectedCalendarDestination = null
+            restoreInboxStatus = "Вибір папки скасовано; документи не змінено."
+            return@registerForActivityResult
+        }
+        releaseSelectedDocumentDestination()
+        restoreInboxLoading = true
+        restoreInboxStatus = "Перевіряю доступ і можливість запису у вибрану папку…"
+        mediaExecutor.execute {
+            val acquired = runCatching { SafDocumentTreeAccess.acquire(applicationContext, uri) }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                restoreInboxLoading = false
+                acquired.onSuccess { selection ->
+                    selectedDocumentTreeSelection = selection
+                    documentDestinationName = selection.displayName
+                    selectedRestoreItems = items
+                    restoreInboxStatus = "Папку призначення вибрано. Переглянь склад передачі й підтвердь відновлення."
+                }.onFailure {
+                    selectedCalendarDestination = null
+                    restoreInboxStatus = "Ця папка не дозволяє безпечно створювати та публікувати документи; дані не змінено. Вибери іншу папку."
+                }
+            }
+        }
+    }
+
     private val contactsPermissionRequest = registerForActivityResult(RequestPermission()) { granted ->
         if (granted && contactsProvider.hasReadAccess()) {
             scanContacts()
@@ -262,6 +303,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val settingsWriteAccessRequest = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) {
+        val transferId = pendingSettingsRestoreTransferId
+        pendingSettingsRestoreTransferId = null
+        if (transferId == null) return@registerForActivityResult
+        if (Settings.System.canWrite(this)) {
+            prepareRestoreReview(transferId)
+        } else {
+            restoreInboxStatus = "Дозвіл на зміну дозволених системних параметрів не надано; налаштування не змінено."
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Shizuku.addRequestPermissionResultListener(shizukuPermissionResultListener)
@@ -284,8 +338,10 @@ class MainActivity : ComponentActivity() {
         restorerRegistry = RestorerRegistry(
             listOf(
                 mediaRestorer,
+                SafDocumentRestorer(applicationContext, restoreApprovalGate),
                 ContactsRestorer(applicationContext, restoreApprovalGate),
                 CalendarRestorer(applicationContext, restoreApprovalGate),
+                SettingsSystemRestorer(applicationContext, restoreApprovalGate),
             ),
         )
         val deviceInfo = DeviceInfoProvider.read(applicationContext)
@@ -303,6 +359,7 @@ class MainActivity : ComponentActivity() {
                             pendingCalendarItems = emptyList()
                             calendarDestinations = emptyList()
                             selectedCalendarDestination = null
+                            releaseSelectedDocumentDestination()
                             showRestoreInbox = false
                         },
                         onRefresh = { refreshRestoreInbox() },
@@ -314,10 +371,10 @@ class MainActivity : ComponentActivity() {
                             destinations = calendarDestinations,
                             onSelected = { destinationId ->
                                 selectedCalendarDestination = calendarDestinations.firstOrNull { it.id == destinationId }
-                                selectedRestoreItems = pendingCalendarItems
+                                val items = pendingCalendarItems
                                 pendingCalendarItems = emptyList()
                                 calendarDestinations = emptyList()
-                                restoreInboxStatus = "Календар призначення вибрано. Переглянь підтвердження перед записом подій."
+                                prepareRestoreConfirmation(items)
                             },
                             onDismiss = {
                                 pendingCalendarItems = emptyList()
@@ -333,11 +390,13 @@ class MainActivity : ComponentActivity() {
                             manifestSha256 = selectedRestoreItems.first().manifestSha256,
                             items = selectedRestoreItems,
                             calendarDestination = selectedCalendarDestination,
+                            documentDestinationName = documentDestinationName,
                             approvalGate = restoreApprovalGate,
                             onApproved = ::beginRestore,
                             onDismiss = {
                                 selectedRestoreItems = emptyList()
                                 selectedCalendarDestination = null
+                                releaseSelectedDocumentDestination()
                             },
                         )
                     }
@@ -519,13 +578,23 @@ class MainActivity : ComponentActivity() {
         mediaExecutor.execute {
             val result = runCatching {
                 transferReceiver.verifiedRestoreItems(transferId).filter {
-                    it.categoryId in setOf("photos", "videos", "audio", "downloads", "contacts", "calendar")
+                    it.categoryId in restorerRegistry.supportedCategoryIds
                 }
             }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread
                 restoreInboxLoading = false
                 val items = result.getOrDefault(emptyList())
+                if (result.isSuccess && items.any { isFileMediaRestoreCategory(it.categoryId) } &&
+                    Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                    checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    pendingRestoreReviewTransferId = transferId
+                    restoreInboxStatus = "Для запису медіафайлів у публічні папки Android 8–9 потрібен дозвіл на сховище. Документи через SAF його не потребують."
+                    legacyRestorePermissionRequest.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                    return@runOnUiThread
+                }
                 if (result.isSuccess && items.any { it.categoryId == "contacts" } &&
                     (checkSelfPermission(android.Manifest.permission.READ_CONTACTS) !=
                         android.content.pm.PackageManager.PERMISSION_GRANTED ||
@@ -555,15 +624,31 @@ class MainActivity : ComponentActivity() {
                     )
                     return@runOnUiThread
                 }
+                if (result.isSuccess && items.any { it.categoryId == "settings" } &&
+                    !Settings.System.canWrite(this)
+                ) {
+                    pendingSettingsRestoreTransferId = transferId
+                    restoreInboxStatus = "Для відновлення вибраних публічних системних параметрів потрібне окреме підтвердження Android. Захищені Secure/Global налаштування не змінюються."
+                    val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS)
+                        .setData(Uri.parse("package:$packageName"))
+                    runCatching { settingsWriteAccessRequest.launch(intent) }
+                        .onFailure {
+                            pendingSettingsRestoreTransferId = null
+                            restoreInboxStatus = "Не вдалося відкрити системний дозвіл; налаштування не змінено."
+                        }
+                    return@runOnUiThread
+                }
                 if (result.isSuccess && items.any { it.categoryId == "calendar" }) {
                     loadCalendarDestinations(items)
                     return@runOnUiThread
                 }
-                selectedRestoreItems = items
-                restoreInboxStatus = when {
-                    result.isFailure -> "Не вдалося відкрити перевірені items передачі."
-                    items.isEmpty() -> "У передачі немає перевірених медіафайлів, контактів або календарних подій для цього Android API."
-                    else -> "Підготовлено для перегляду медіафайлів, контактів і календаря: ${items.size}. Запис ще не почався."
+                when {
+                    result.isFailure -> restoreInboxStatus = "Не вдалося відкрити перевірені items передачі."
+                    items.isEmpty() -> restoreInboxStatus = "У передачі немає перевірених файлів, медіа, контактів, календарних подій або підтримуваних системних параметрів для цього Android API."
+                    else -> {
+                        restoreInboxStatus = "Підготовлено для перегляду й підтвердження: ${items.size} елементів. Запис ще не почався."
+                        prepareRestoreConfirmation(items)
+                    }
                 }
             }
         }
@@ -709,25 +794,54 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestRestoreReview(transferId: String) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
-            checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            pendingRestoreReviewTransferId = transferId
-            restoreInboxStatus = "Потрібен дозвіл Android для запису медіафайлів у публічні папки."
-            legacyRestorePermissionRequest.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-            return
-        }
         prepareRestoreReview(transferId)
+    }
+
+    private fun prepareRestoreConfirmation(items: List<VerifiedRestoreItem>) {
+        if (items.any { it.categoryId == "documents" }) {
+            pendingDocumentRestoreItems = items
+            restoreInboxLoading = true
+            restoreInboxStatus = "Перевіряю збережений доступ до папки або відкрию системний вибір папки…"
+            mediaExecutor.execute {
+                val saved = SafDocumentTreeAccess.restoreSaved(applicationContext)
+                runOnUiThread {
+                    if (isDestroyed) return@runOnUiThread
+                    restoreInboxLoading = false
+                    if (saved != null) {
+                        selectedDocumentTreeSelection = saved
+                        documentDestinationName = saved.displayName
+                        selectedRestoreItems = items
+                        restoreInboxStatus = "Збережений доступ до папки дійсний. Переглянь склад передачі й підтвердь відновлення."
+                        return@runOnUiThread
+                    }
+                    restoreInboxStatus = "Вибери папку, куди зберегти документи. Дані не зміняться до підтвердження."
+                    runCatching { restoreDocumentsTreePicker.launch(null) }
+                        .onFailure {
+                            pendingDocumentRestoreItems = emptyList()
+                            restoreInboxStatus = "Не вдалося відкрити системний вибір папки; дані не змінено."
+                        }
+                }
+            }
+        } else {
+            selectedRestoreItems = items
+        }
+    }
+
+    private fun releaseSelectedDocumentDestination() {
+        SafDocumentTreeAccess.releaseIfOwned(applicationContext, selectedDocumentTreeSelection)
+        selectedDocumentTreeSelection = null
+        documentDestinationName = null
     }
 
     private fun beginRestore(approval: RestoreApproval) {
         val items = selectedRestoreItems
         val calendarDestinationId = selectedCalendarDestination?.id
+        val documentSelection = selectedDocumentTreeSelection
         selectedRestoreItems = emptyList()
         if (items.isEmpty()) {
             restoreApprovalGate.revoke(approval)
             selectedCalendarDestination = null
+            releaseSelectedDocumentDestination()
             return
         }
         restoreInProgress = true
@@ -740,7 +854,10 @@ class MainActivity : ComponentActivity() {
                         restorerRegistry.restore(
                             item,
                             approval,
-                            RestoreContext(calendarDestinationId = calendarDestinationId),
+                            RestoreContext(
+                                calendarDestinationId = calendarDestinationId,
+                                documentTreeUri = documentSelection?.uri,
+                            ),
                         )
                     }.getOrElse {
                         com.transferkit.client.restore.RestoreItemResult(
@@ -752,6 +869,7 @@ class MainActivity : ComponentActivity() {
                 }
             } finally {
                 restoreApprovalGate.revoke(approval)
+            SafDocumentTreeAccess.releaseIfOwned(applicationContext, documentSelection)
             }
             val cleanupPending = orderedItems.zip(results).count { (item, result) ->
                 result.status == RestoreItemStatus.RESTORED &&
@@ -768,6 +886,8 @@ class MainActivity : ComponentActivity() {
                     "помилок цілісності $integrity, недоступно $unavailable, інші помилки $failed; " +
                     "не вдалося прибрати тимчасові файли: $cleanupPending."
                 refreshRestoreInbox(preserveStatus = true)
+                selectedDocumentTreeSelection = null
+                documentDestinationName = null
             }
         }
         selectedCalendarDestination = null
@@ -1123,14 +1243,12 @@ class MainActivity : ComponentActivity() {
                     val size = item.sizeBytes
                     if (size == null) unknownSizes += 1 else totalBytes = totalBytes.saturatingAdd(size)
                 }
-                items.firstOrNull()?.let { item ->
-                    mediaProvider.openStream(item).use { stream -> stream.read(ByteArray(16 * 1024)) }
-                }
                 val counts = items.groupingBy { it.categoryId }.eachCount()
                     .entries.joinToString { "${it.key}: ${it.value}" }
                 val result = "Вибрано ${items.size} файлів ($counts), " +
                     "відомий розмір ${formatBytes(totalBytes)}, " +
-                    "$unknownSizes без розміру; потік відкрито."
+                    "$unknownSizes без розміру; прочитано лише метадані. Вміст і SHA-256 " +
+                    "будуть прочитані під час побудови маніфесту."
                 val manifestCategories = items.groupBy { it.categoryId }.map { (categoryId, categoryItems) ->
                     ManifestCategorySource(
                         categoryId,
@@ -1146,7 +1264,7 @@ class MainActivity : ComponentActivity() {
             } catch (_: SecurityException) {
                 runOnUiThread { mediaStatus = "SAF URI більше не доступний; вибери файл знову." }
             } catch (_: IOException) {
-                runOnUiThread { mediaStatus = "Не вдалося потоково відкрити вибраний документ." }
+                runOnUiThread { mediaStatus = "Не вдалося прочитати метадані вибраного документа." }
             }
         }
     }

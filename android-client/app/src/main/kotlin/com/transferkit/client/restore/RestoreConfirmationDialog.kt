@@ -17,6 +17,7 @@ fun RestoreConfirmationDialog(
     manifestSha256: String,
     items: List<VerifiedRestoreItem>,
     calendarDestination: CalendarDestination? = null,
+    documentDestinationName: String? = null,
     approvalGate: RestoreApprovalGate,
     onApproved: (RestoreApproval) -> Unit,
     onDismiss: () -> Unit,
@@ -55,6 +56,18 @@ fun RestoreConfirmationDialog(
                             append(destination.accountName)
                         }
                         append(". Події можуть синхронізуватися за налаштуваннями цього календаря.")
+                    }
+                    if (items.any { it.categoryId == "documents" }) {
+                        append("\nДокументи буде збережено у вибрану папку «")
+                        append(documentDestinationName?.ifBlank { "без назви" } ?: "не вибрано")
+                        append("». TransferKit не перезаписує наявний файл і перевірить записані байти.")
+                    }
+                    val settingsCount = items.filter { it.categoryId == "settings" }
+                        .sumOf { (it.metadata["setting_count"] as? Number)?.toInt()?.coerceAtLeast(0) ?: 0 }
+                    if (settingsCount > 0) {
+                        append("\nБуде відновлено до ")
+                        append(settingsCount)
+                        append(" дозволених публічних параметрів Settings.System. Інші системні, Secure/Global, облікові та мережеві налаштування не змінюються.")
                     }
                     append("\nПісля успішної post-перевірки TransferKit видалить власні тимчасові копії саме цих елементів; якщо відновлення не пройде перевірку, копія залишиться для повтору.")
                     append("\nПродовжити?")

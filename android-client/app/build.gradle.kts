@@ -17,8 +17,8 @@ android {
         applicationId = "com.transferkit.client"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.1.0-alpha.4"
+        versionCode = 6
+        versionName = "0.1.0-alpha.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -53,6 +53,8 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.activity:activity-compose:1.8.2")
+    // AndroidX Test 1.8 calls Trace.forceEnableAppTracing(), introduced in tracing 1.1.0.
+    implementation("androidx.tracing:tracing:1.1.0")
     implementation("androidx.compose.ui:ui:1.6.0")
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.0")
     implementation("androidx.compose.material3:material3:1.2.0")

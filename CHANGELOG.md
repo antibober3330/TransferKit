@@ -2,6 +2,25 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.5] - 2026-11-14
+
+Source-only development snapshot; no release tag. Android `versionCode` is 6. This remains an alpha and is not a production release.
+
+### Included
+
+- Added the Android SAF document restorer with explicit destination selection, temporary-write and readback verification, SHA-256 checks, and idempotent retry. A real Android system picker and Samsung local Documents provider were accepted on A72/API 34.
+- Added the allowlisted Android system-settings restorer and Settings-only Restore Inbox/review route with the `WRITE_SETTINGS` special-access return flow. Physical acceptance used a synthetic setting and restored its original value.
+- Hardened Calendar post-verification for provider-generated self-attendee rows and extended synthetic provider coverage for Calendar, Contacts, MediaStore, and receiver integrity.
+- Made Shizuku bridge calls injectable and fail-closed, with coverage for missing service, permission, server, and request-error states.
+- Added durable ACK-based receiver progress evidence and progress-screen controls for opt-in keep-awake/dimming, restoring the page's original window attributes on exit.
+- Added Python regression coverage for Downloads planning, ADB smoke diagnostics, Recovery frame header rejection, canonical SHA-256 validation, and all `ReasonCode` schema values.
+
+### Validation and limits
+
+- Latest recorded Python suite: 152/152 passed. Latest Android unit suite: 94/94 passed; debug and AndroidTest APK builds succeeded.
+- Targeted physical tests passed on Samsung A72/API 34 and S20 Ultra/API 33, including receiver core 18/18 on each and progress-screen behavior. Detailed device evidence and cleanup are recorded in `PHONE_TESTING.md` and `docs/project/RELEASE_READINESS.md`.
+- The product is not ready for production: live multi-file transfer/recovery, broader category restore, device diversity, and remaining release gates are still open. No release tag is created.
+
 ## [0.1.0-alpha.4] - 2026-11-13
 
 Source-only development snapshot published to the private GitHub `main` as commit `1fd4a63c29c316e1ef6668d83abb8bfbbc053557`; no release tag. This remains an alpha and is not a production release.

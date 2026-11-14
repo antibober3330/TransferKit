@@ -24,8 +24,8 @@ class SettingsSnapshotItem internal constructor(
     }
 
     fun manifestMetadata(): Map<String, Any> = mapOf(
-        "format" to "transferkit-public-settings-json",
-        "version" to 1,
+        "format" to SettingsSnapshotPolicy.MANIFEST_FORMAT,
+        "version" to SettingsSnapshotPolicy.VERSION,
         "setting_count" to settingCount,
     )
 
@@ -88,14 +88,7 @@ class SettingsProvider(context: Context) {
     }
 
     companion object {
-        private val PUBLIC_SYSTEM_KEYS = listOf(
-            Settings.System.SCREEN_OFF_TIMEOUT,
-            Settings.System.SCREEN_BRIGHTNESS,
-            Settings.System.SCREEN_BRIGHTNESS_MODE,
-            Settings.System.ACCELEROMETER_ROTATION,
-            Settings.System.FONT_SCALE,
-            Settings.System.SOUND_EFFECTS_ENABLED,
-        )
+        private val PUBLIC_SYSTEM_KEYS = SettingsSnapshotPolicy.allowlistedKeys
     }
 }
 
@@ -103,9 +96,9 @@ internal fun canonicalSettingsBytes(values: Map<String, String>): ByteArray {
     val fields = values.toSortedMap().mapValues { (_, value) -> JsonPrimitive(value) as JsonElement }
     val document = JsonObject(
         sortedMapOf(
-            "format" to JsonPrimitive("transferkit-settings-system"),
+            "format" to JsonPrimitive(SettingsSnapshotPolicy.PAYLOAD_FORMAT),
             "settings" to JsonObject(fields),
-            "version" to JsonPrimitive(1),
+            "version" to JsonPrimitive(SettingsSnapshotPolicy.VERSION),
         ),
     )
     return SETTINGS_JSON.encodeToString(JsonObject.serializer(), document).toByteArray(StandardCharsets.UTF_8)

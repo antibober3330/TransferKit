@@ -19,6 +19,13 @@ class CalendarRestorerInstrumentedTest {
     @Test
     fun restoresSyntheticEventOnceAndRemovesOnlyItsOwnMarker() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val missingPermissions = listOf(
+            android.Manifest.permission.READ_CALENDAR,
+            android.Manifest.permission.WRITE_CALENDAR,
+        ).filter {
+            context.checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        assumeTrue("Pre-grant synthetic Calendar Provider test permissions with ADB: $missingPermissions", missingPermissions.isEmpty())
         assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED, context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR))
         assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED, context.checkSelfPermission(android.Manifest.permission.WRITE_CALENDAR))
         val destinations = CalendarRestorer.listWritableCalendars(context)

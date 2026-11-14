@@ -12,6 +12,7 @@ import com.transferkit.client.protocol.ProtocolCodec
 import com.transferkit.client.protocol.ProtocolException
 import com.transferkit.client.restore.VerifiedRestoreItem
 import com.transferkit.client.restore.isFileMediaRestoreCategory
+import com.transferkit.client.restore.isSafDocumentRestoreCategory
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -53,6 +54,8 @@ data class ReceivedTransferSummary(
     val restorableContactBytes: Long = 0L,
     val restorableCalendarItemCount: Int = 0,
     val restorableCalendarBytes: Long = 0L,
+    val restorableSettingsItemCount: Int = 0,
+    val restorableSettingsBytes: Long = 0L,
 )
 
 /** Cumulative bytes durable in receiver checkpoints; retries never inflate this value. */
@@ -303,10 +306,13 @@ class AndroidTransferReceiver(context: Context) : Closeable {
             val verified = rows.filter { it.status == ReceiverDatabase.ITEM_VERIFIED }
             val restored = verified.count { it.restoreStatus == ReceiverDatabase.ITEM_RESTORED }
             val pendingRestore = verified.filter { it.restoreStatus != ReceiverDatabase.ITEM_RESTORED }
-            val restorable = pendingRestore.filter { isFileMediaRestoreCategory(it.categoryId) }
+            val restorable = pendingRestore.filter {
+                isFileMediaRestoreCategory(it.categoryId) || isSafDocumentRestoreCategory(it.categoryId)
+            }
             val restorableApks = pendingRestore.filter { it.categoryId == "apks" }
             val restorableContacts = pendingRestore.filter { it.categoryId == "contacts" }
             val restorableCalendar = pendingRestore.filter { it.categoryId == "calendar" }
+            val restorableSettings = pendingRestore.filter { it.categoryId == "settings" }
             ReceivedTransferSummary(
                 transferId = transfer.transferId,
                 manifestSha256 = transfer.manifestSha256,
@@ -314,7 +320,7 @@ class AndroidTransferReceiver(context: Context) : Closeable {
                 restorableItemCount = restorable.size,
                 restorableBytes = restorable.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
                 restoredItemCount = restored,
-                unavailableVerifiedItemCount = verified.size - restored - restorable.size - restorableApks.size - restorableContacts.size - restorableCalendar.size,
+                unavailableVerifiedItemCount = verified.size - restored - restorable.size - restorableApks.size - restorableContacts.size - restorableCalendar.size - restorableSettings.size,
                 failedItemCount = rows.count { it.status == ReceiverDatabase.ITEM_FAILED },
                 restorableApkItemCount = restorableApks.size,
                 restorableApkBytes = restorableApks.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
@@ -322,6 +328,8 @@ class AndroidTransferReceiver(context: Context) : Closeable {
                 restorableContactBytes = restorableContacts.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
                 restorableCalendarItemCount = restorableCalendar.size,
                 restorableCalendarBytes = restorableCalendar.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
+                restorableSettingsItemCount = restorableSettings.size,
+                restorableSettingsBytes = restorableSettings.fold(0L) { total, item -> total.saturatingAdd(item.declaredSize) },
             )
         }
     }
