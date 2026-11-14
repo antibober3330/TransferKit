@@ -10,12 +10,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from heapq import heappop, heappush
-from typing import Iterable
+from pathlib import Path
+from shutil import disk_usage
+from typing import Callable, Iterable, NamedTuple
+
+from .transport.backup_relay import (
+    ENCRYPTED_RELAY_ENVELOPE_OVERHEAD_BYTES,
+    MAX_ARCHIVE_OVERHEAD_BYTES,
+)
 
 
 MIB = 1024 * 1024
 DEFAULT_MINIMUM_SAFETY_MARGIN_BYTES = 100 * MIB
 DEFAULT_SAFETY_MARGIN_DIVISOR = 20
+RELAY_FALLBACK_MINIMUM_MARGIN_BYTES = 200 * MIB
+RELAY_FALLBACK_MARGIN_DIVISOR = 10
 
 
 class SpaceStrategy(StrEnum):
@@ -62,6 +71,23 @@ class SpacePreflightResult:
     requires_user_decision: bool
 
 
+class RelayDiskUsage(NamedTuple):
+    total: int
+    used: int
+    free: int
+
+
+@dataclass(frozen=True, slots=True)
+class RelayExportSpaceEstimate:
+    verified_payload_bytes: int | None
+    estimated_archive_bytes: int | None
+    available_bytes: int
+    safety_margin_bytes: int
+    safe_available_bytes: int
+    fits: bool | None
+    unknown_item_count: int
+
+
 def default_safety_margin(allocatable_bytes: int) -> int:
     """Return the project default: max(100 MiB, 5% of allocatable bytes)."""
 
@@ -69,6 +95,64 @@ def default_safety_margin(allocatable_bytes: int) -> int:
     return max(
         DEFAULT_MINIMUM_SAFETY_MARGIN_BYTES,
         allocatable_bytes // DEFAULT_SAFETY_MARGIN_DIVISOR,
+    )
+
+
+def estimate_backup_relay_export_space(
+    destination_directory: str | Path,
+    verified_item_sizes: Iterable[int | None],
+    *,
+    encrypted: bool = False,
+    disk_usage_probe: Callable[[str | Path], RelayDiskUsage] = disk_usage,
+) -> RelayExportSpaceEstimate:
+    """Estimate Windows Relay output space without creating files.
+
+    ZIP payload entries are stored without compression, so their declared byte
+    sizes are a direct payload estimate. The existing relay format caps
+    metadata/container overhead at 128 MiB; encrypted containers add their
+    fixed header and GCM tag. Windows free-space data is not an app allocation
+    guarantee, so this path reserves at least 200 MiB or 10% of free space.
+    """
+
+    directory = Path(destination_directory)
+    if not directory.is_dir():
+        raise ValueError("destination_directory must be an existing directory")
+    usage = disk_usage_probe(directory)
+    available = usage.free
+    _validate_byte_count("available_bytes", available)
+    margin = max(RELAY_FALLBACK_MINIMUM_MARGIN_BYTES, available // RELAY_FALLBACK_MARGIN_DIVISOR)
+    safe_available = max(0, available - margin)
+
+    sizes = tuple(verified_item_sizes)
+    unknown_count = sum(size is None for size in sizes)
+    for size in sizes:
+        if size is not None:
+            _validate_byte_count("verified_item_size", size)
+    if not sizes:
+        raise ValueError("at least one verified item size is required")
+    if unknown_count:
+        return RelayExportSpaceEstimate(
+            verified_payload_bytes=None,
+            estimated_archive_bytes=None,
+            available_bytes=available,
+            safety_margin_bytes=margin,
+            safe_available_bytes=safe_available,
+            fits=None,
+            unknown_item_count=unknown_count,
+        )
+
+    payload_bytes = sum(size for size in sizes if size is not None)
+    archive_bytes = payload_bytes + MAX_ARCHIVE_OVERHEAD_BYTES
+    if encrypted:
+        archive_bytes += ENCRYPTED_RELAY_ENVELOPE_OVERHEAD_BYTES
+    return RelayExportSpaceEstimate(
+        verified_payload_bytes=payload_bytes,
+        estimated_archive_bytes=archive_bytes,
+        available_bytes=available,
+        safety_margin_bytes=margin,
+        safe_available_bytes=safe_available,
+        fits=archive_bytes <= safe_available,
+        unknown_item_count=0,
     )
 
 

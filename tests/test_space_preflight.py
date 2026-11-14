@@ -1,12 +1,16 @@
 import unittest
 from itertools import product
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from transferkit.space_preflight import (
     MIB,
     SpaceItemEstimate,
     SpaceStrategy,
+    RelayDiskUsage,
     calculate_space_preflight,
     default_safety_margin,
+    estimate_backup_relay_export_space,
     select_drop_largest_subset,
 )
 
@@ -145,6 +149,49 @@ class SpacePreflightTests(unittest.TestCase):
             select_drop_largest_subset(
                 (SpaceItemEstimate("unknown", None, 1),), safe_available_bytes=10
             )
+
+    def test_relay_export_uses_conservative_windows_free_space_and_encryption_overhead(self):
+        with TemporaryDirectory() as directory:
+            result = estimate_backup_relay_export_space(
+                directory,
+                (100, 200),
+                encrypted=True,
+                disk_usage_probe=lambda _path: RelayDiskUsage(4_000 * MIB, 1_000 * MIB, 3_000 * MIB),
+            )
+
+            self.assertEqual(result.verified_payload_bytes, 300)
+            self.assertEqual(result.estimated_archive_bytes, 300 + 128 * MIB + 49)
+            self.assertEqual(result.safety_margin_bytes, 300 * MIB)
+            self.assertTrue(result.fits)
+            self.assertEqual(tuple(Path(directory).iterdir()), ())
+
+    def test_relay_export_can_fail_preflight_without_mutating_destination(self):
+        with TemporaryDirectory() as directory:
+            result = estimate_backup_relay_export_space(
+                directory,
+                (1,),
+                disk_usage_probe=lambda _path: RelayDiskUsage(300 * MIB, 50 * MIB, 250 * MIB),
+            )
+
+            self.assertFalse(result.fits)
+            self.assertEqual(result.safe_available_bytes, 50 * MIB)
+            self.assertEqual(tuple(Path(directory).iterdir()), ())
+
+    def test_relay_export_unknown_payload_size_never_claims_it_fits(self):
+        with TemporaryDirectory() as directory:
+            result = estimate_backup_relay_export_space(
+                directory,
+                (1, None),
+                disk_usage_probe=lambda _path: RelayDiskUsage(4_000 * MIB, 1_000 * MIB, 3_000 * MIB),
+            )
+
+        self.assertIsNone(result.estimated_archive_bytes)
+        self.assertIsNone(result.fits)
+        self.assertEqual(result.unknown_item_count, 1)
+
+    def test_relay_export_requires_existing_destination_directory(self):
+        with self.assertRaisesRegex(ValueError, "existing directory"):
+            estimate_backup_relay_export_space("missing-output-directory", (1,))
 
 
 if __name__ == "__main__":

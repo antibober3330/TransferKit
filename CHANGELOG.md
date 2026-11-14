@@ -2,6 +2,20 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.16] - 2026-11-14
+
+Source-only development snapshot prepared; publication commit will be recorded after push. Android `versionCode` is 17. This remains an alpha and is not a production release.
+
+### Space Preflight
+
+- Added a read-only Android volume probe using `StorageManager.getUuidForPath()` / `getAllocatableBytes()` with `StatFs` available-byte fallback and a larger reserve when app-allocatable space is unavailable.
+- Staging and destination budgets remain separate unless Android confirms that they share the same volume.
+- Added Windows Backup Relay output-space estimation from the selected directory's disk usage, with conservative ZIP/encryption overhead and no preflight writes.
+
+### Validation
+
+- Python suite: 169/169 passed; Android unit suite: 148/148 passed; debug and AndroidTest APK assemblies succeeded. No phones were used. Physical volume/OEM acceptance remains open.
+
 ## [0.1.0-alpha.15] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `e3fd34a63defa2baef7944d607aa15bdf9811ce8`; no release tag. Android `versionCode` is 16. This remains an alpha and is not a production release.
