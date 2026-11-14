@@ -2,6 +2,20 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.15] - 2026-11-14
+
+Source-only development snapshot prepared; publication commit will be recorded after push. Android `versionCode` is 16. This remains an alpha and is not a production release.
+
+### Space Preflight
+
+- Added a side-effect-free Python calculator for batch, streaming, drop-largest, and insufficient-space outcomes using provider-supplied staging/restore estimates.
+- Unknown provider estimates fail closed and require a user decision; they are never treated as zero bytes.
+- Drop-largest maximizes the number of items under `restore_sum + largest_staging <= safe_available`; `[10, 20, 30]` all fit at budget 100.
+
+### Validation
+
+- Python suite: 165/165 passed; Android unit XML reports 144 passed, 0 failures/errors; debug and AndroidTest APK assemblies succeeded. No phones were used. The generated debug APK is a local build artifact and is not included in the source snapshot.
+
 ## [0.1.0-alpha.14] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `35002785af5b0d6cb474b791f793d2a12bc0ecaa`; no release tag. Android `versionCode` is 15. This remains an alpha and is not a production release.

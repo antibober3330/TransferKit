@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.14` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.14`, `versionCode=15`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.15` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.15`, `versionCode=16`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -27,7 +27,7 @@ Source-only snapshot alpha.7 (`versionCode=8`) опубліковано у пр�
 
 Source-only snapshot alpha.8 (`versionCode=9`) опубліковано у приватний GitHub `main` комітом `28e5148afad4fe99cf722b004f1b1ee872f8750a` після alpha.7; push був fast-forward, попередню історію збережено. Android unit suite **117/117 passed**, Python suite **152/152 passed**, debug та AndroidTest APK збираються. Фізичний consent callback не перевірявся, оскільки телефони зараз недоступні; Shizuku manager на попередніх пристроях був відсутній. У Git не включалися APK/build artifacts; release tag не створювався.
 
-Source-only alpha.14 (`versionCode=15`) підготовлений для пунктів 048–049. ADB receiver окремо повідомляє автентифіковану session active/closed, а UI відрізняє live receive від listener-ready та останнього часткового checkpoint. Android unit **144/144 passed**, Python **152/152 passed**, debug та AndroidTest APK збираються. Жодні телефони не використовувалися; active notification/disconnect acceptance лишається відкритим. Alpha.13 поки останній опублікований snapshot; alpha.14 source-only без build artifacts/release tag.
+Source-only alpha.15 (`versionCode=16`) містить Python Space Preflight calculator для provider-supplied staging/restore estimates, batch/streaming/drop-largest/insufficient outcomes і fail-closed поведінки для unknown estimates. Python suite — **165/165 passed**. Release gate для фізичного переносу лишається відкритим; Android storage probing та UI/protocol integration ще не реалізовані. Alpha.14 лишається останнім опублікованим snapshot до завершення пункту 154; alpha.15 підготовлена без APK/build artifacts і без release tag.
 
 Source-only alpha.13 (`versionCode=14`) опубліковано у приватний GitHub `main` комітом `57ace6aa086c0129e0d4d04c5bc37a4070c1e228` після alpha.12 (`f70f8f9298ef74e583a37093fe9b1fe11d787ee5`); push пройшов fast-forward, remote HEAD звірено. Durable progress observer ізольовано: помилка checkpoint read або UI callback не перериває transport handler після ACK; додано три JVM regressions для failure recovery і throttle. Android unit **142/142 passed**, Python **152/152 passed**, debug та AndroidTest APK зібрані. Жодні телефони не використовувалися. Source-only без APK/build artifacts та release tag.
 
@@ -224,6 +224,10 @@ Page-scoped keep-awake and dimmer interaction passed **1/1 on A72/API 34 and 1/1
 `LegacyMediaRestorer` now depends on a narrow `LegacyMediaEnvironment` boundary for API level, runtime permission, mounted storage/root, and MediaScanner. Seven deterministic JVM regressions passed as part of Android unit **101/101**; debug and AndroidTest APKs built successfully. They cover verified staging/publish, retry, permission-gate semantics, payload integrity, collision protection, storage-not-mounted, and scanner retry. This does not count as Android API 26–28 device acceptance; available devices are API 33/34 and the installed emulator image is API 37 only.
 
 Після cleanup test scripts SDK `adb devices -l` показав порожній список; після повторного `adb start-server` телефони не з’явилися. Під час кожного фізичного прогону cleanup перевірив відсутність app/test package відразу після uninstall; подальшу перевірку стану телефонів треба виконати після їх повторного підключення.
+
+## Space Preflight calculator (2026-11-14)
+
+Пункт 109 реалізований як чистий Python calculator у `transferkit/space_preflight.py`: provider може задавати staging та restore оцінки окремо, batch використовує суму обох, streaming — restore total плюс найбільший staging item, а Drop-Largest за O(n log n) обирає максимальну за кількістю підмножину за умовою `restore_sum + max(staging) <= safe_available`. Невідома оцінка не вважається нулем і блокує автоматичне рішення. 13 targeted regressions і повний Python suite **165/165 passed**; Android unit XML — **144 passed, 0 failures/errors**, debug та AndroidTest APK assemblies успішні. Телефони не використовувались. Цей модуль поки не інтегрований з Android `StorageManager`, SpaceReport/wire negotiation чи UI; ці роботи лишаються відкритими.
 
 ## Alpha.14 source-only snapshot (2026-11-14)
 

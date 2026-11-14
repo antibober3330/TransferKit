@@ -1,3 +1,3 @@
 """TransferKit Windows Station application package."""
 
-__version__ = "0.1.0-alpha.14"
+__version__ = "0.1.0-alpha.15"
