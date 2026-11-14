@@ -4,7 +4,7 @@ This file tracks user-visible and protocol-level changes. The current project is
 
 ## [0.1.0-alpha.14] - 2026-11-14
 
-Source-only development snapshot; no release tag. Android `versionCode` is 15. This remains an alpha and is not a production release.
+Source-only development snapshot published to private GitHub `main` as commit `35002785af5b0d6cb474b791f793d2a12bc0ecaa`; no release tag. Android `versionCode` is 15. This remains an alpha and is not a production release.
 
 ### Android
 
