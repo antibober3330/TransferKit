@@ -230,3 +230,7 @@ The test cleanup scripts confirmed that `com.transferkit.client` and `com.transf
 ## APK install coordinator deterministic regressions (2026-11-14)
 
 `ApkInstallCoordinatorTest` uses only a synthetic in-memory PackageInstaller fake and a temporary synthetic APK payload. Fourteen JVM cases cover exact approval binding and replay prevention, install-permission retry, create/write/readback/fsync behavior, same-size source mutation, payload and session readback integrity failures, invalid package/category/size, installer failure and pending-user-action results, and installed-version verification. The full Android unit suite passed **115/115**; debug and AndroidTest APKs assembled successfully. No APK was installed and no Android device state was changed. This does not replace physical acceptance of the real PackageInstaller UI/callback flow or process-death recovery. ADB currently has no reachable devices after server restart.
+
+## Shizuku permission callback message policy (2026-11-14)
+
+Moved the localized async grant/denial result text into a small policy helper and added two JVM regressions. Android unit suite: **117/117**; Python suite: **152/152**; debug and AndroidTest APKs compile. The user confirmed phones are currently unavailable. SDK ADB 1.0.41 could not connect to its local daemon on ports 5037/5038 in sandbox; after the host daemon was started outside the sandbox, `adb devices -l` still listed no devices. No physical tests were attempted and no device state was changed.

@@ -2,6 +2,21 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.8] - 2026-11-14
+
+Source-only development snapshot prepared for the private GitHub `main`; no release tag. Android `versionCode` is 9. This remains an alpha and is not a production release.
+
+### Included
+
+- Extracted the asynchronous Shizuku permission-result message policy so grant/denial UI text can be checked independently of a running manager service.
+- Added explicit JVM checks that granting Shizuku permission does not claim an unimplemented system-settings operation ran, while denial confirms settings remain unchanged.
+
+### Validation and limits
+
+- Android unit suite: 117/117 passed; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded.
+- Python suite: 152/152 passed.
+- Shizuku manager prompt/callback still needs physical acceptance; no phones were available for this run. This is not a production release.
+
 ## [0.1.0-alpha.7] - 2026-11-14
 
 Source-only development snapshot published to the private GitHub `main` as commit `96b56932365093fa876022690bdedf060b18db6d`; no release tag. Android `versionCode` is 8. This remains an alpha and is not a production release.

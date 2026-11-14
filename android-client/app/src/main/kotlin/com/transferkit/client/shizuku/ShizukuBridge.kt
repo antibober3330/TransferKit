@@ -59,6 +59,13 @@ internal fun shizukuPermissionRequestMessage(result: ShizukuPermissionRequestRes
         "Не вдалося надіслати запит Shizuku; перевір стан його сервісу."
 }
 
+/** User-facing result for Shizuku's asynchronous permission callback; permission grants no operation. */
+internal fun shizukuPermissionResultMessage(granted: Boolean): String = if (granted) {
+    "Дозвіл Shizuku надано. Це не активує ще не реалізовані privileged settings операції."
+} else {
+    "Дозвіл Shizuku не надано; налаштування пристрою не змінювалися."
+}
+
 /** Read-only availability probe. This bridge does not start a shell or execute privileged work. */
 internal class ShizukuBridge(
     private val api: ShizukuApi = PlatformShizukuApi,

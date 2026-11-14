@@ -19,6 +19,24 @@ class ShizukuPermissionMessageTest {
     }
 
     @Test
+    fun grantedCallbackExplainsPermissionDoesNotEnableUnimplementedOperations() {
+        val message = shizukuPermissionResultMessage(granted = true)
+
+        assertTrue(message.contains("Дозвіл Shizuku надано"))
+        assertTrue(message.contains("не активує"))
+        assertFalse(message.contains("виконано"))
+    }
+
+    @Test
+    fun deniedCallbackConfirmsDeviceSettingsRemainUnchanged() {
+        val message = shizukuPermissionResultMessage(granted = false)
+
+        assertTrue(message.contains("Дозвіл Shizuku не надано"))
+        assertTrue(message.contains("не змінювалися"))
+        assertFalse(message.contains("виконано"))
+    }
+
+    @Test
     fun unsupportedApiDoesNotContactShizuku() {
         val api = FakeShizukuApi()
 

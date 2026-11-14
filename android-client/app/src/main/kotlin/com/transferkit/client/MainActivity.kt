@@ -53,6 +53,7 @@ import com.transferkit.client.restore.ApkRestoreViewModel
 import com.transferkit.client.restore.ApkInstallConfirmationDialog
 import com.transferkit.client.shizuku.ShizukuBridge
 import com.transferkit.client.shizuku.shizukuPermissionRequestMessage
+import com.transferkit.client.shizuku.shizukuPermissionResultMessage
 import rikka.shizuku.Shizuku
 
 class MainActivity : ComponentActivity() {
@@ -137,11 +138,9 @@ class MainActivity : ComponentActivity() {
 
     private val shizukuPermissionResultListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == SHIZUKU_PERMISSION_REQUEST_CODE) {
-            shizukuStatus = if (grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                "Дозвіл Shizuku надано. Це не активує ще не реалізовані privileged settings операції."
-            } else {
-                "Дозвіл Shizuku не надано; налаштування пристрою не змінювалися."
-            }
+            shizukuStatus = shizukuPermissionResultMessage(
+                granted = grantResult == android.content.pm.PackageManager.PERMISSION_GRANTED,
+            )
             scanSettings()
         }
     }
