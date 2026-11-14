@@ -10,8 +10,8 @@
 
 | Компонент | Зафіксована версія/межа | Джерело істини |
 |---|---|---|
-| TransferKit Windows | `0.1.0-alpha.17` | `VERSION`, mirrored in `transferkit/__init__.py` |
-| TransferKit Android | `versionName=0.1.0-alpha.17`, `versionCode=18`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
+| TransferKit Windows | `0.1.0-alpha.18` | `VERSION`, mirrored in `transferkit/__init__.py` |
+| TransferKit Android | `versionName=0.1.0-alpha.18`, `versionCode=19`, package `com.transferkit.client` | `VERSION`, mirrored in `android-client/app/build.gradle.kts` |
 | Python | мінімум 3.11; у цій перевірці Python 3.14.4 | `install.bat`, середовище перевірки |
 | Python залежності у requirements | PySide6 ≥6.6; cryptography ≥41; Pydantic ≥2; jsonschema ≥4.20; referencing ≥0.30; PyInstaller ≥6.0 | `requirements.txt` |
 | Python середовище цієї перевірки | PySide6 6.11.0, cryptography 43.0.3, Pydantic 2.13.5, jsonschema 4.26.0, referencing 0.37.0, PyInstaller 6.20.0 | активний інтерпретатор користувача |
@@ -263,3 +263,11 @@ Point 110 has a read-only Android probe for path UUID, app-allocatable bytes and
 ## Alpha.17 source-only publication (2026-11-14)
 
 `0.1.0-alpha.17` (`versionCode=18`) опубліковано у приватний GitHub `main` fast-forward commit-ом `923a6e669e5e0e9cd729e456d2eadcf411a48809` після `c2ccd81f7e5c25c236a4d1c45bc35dc3b8ae335d`; remote HEAD звірено з commit. Snapshot містить 25 source/doc/test files, без APK/AAB/build/cache artifacts та відомих credential-pattern збігів. Python suite — 178/178; Android unit — 158/158; debug і AndroidTest assemblies успішні. Release tag не створювався. Пункт 111 закрито; 112 лишається частковим до runtime `TKSP/TKSD`, Windows UI та end-to-end acceptance. Телефони не використовувалися.
+
+## Android per-item staging integrity gate (2026-11-14, checklist 113 partial)
+
+- Before a normal category adapter can write to the destination, the app re-reads the receiver-owned staging file through a fixed 64 KiB buffer and verifies its exact size and canonical SHA-256. A mismatch becomes `FAILED_INTEGRITY`; the adapter is not called.
+- Items are restored sequentially. Only after the adapter reports destination post-verification does the receiver mark that item restored and remove its matching app-private staging file. Restore failures retain staging for retry; cleanup failure is surfaced separately.
+- Existing API 29+ MediaStore adapters keep rows pending until source and destination verification and verify again after publication. API 26–28 adapters keep the verified temporary-file/rename/media-scan path.
+- Validation: ten new Kotlin unit regressions; Android unit suite 168/168; `:app:assembleDebug` and `:app:assembleDebugAndroidTest` succeeded. No phones were used.
+- This does not yet stream received items directly into restore: the full transfer is still staged before Restore Inbox approval. The per-item wire handoff, `ItemResult` ACK, space negotiation, and interruption acceptance remain open under checklist items 116, 119–121.

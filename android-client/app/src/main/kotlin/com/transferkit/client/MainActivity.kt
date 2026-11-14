@@ -42,6 +42,7 @@ import com.transferkit.client.restore.RestoreItemStatus
 import com.transferkit.client.restore.RestorerRegistry
 import com.transferkit.client.restore.RestoreContext
 import com.transferkit.client.restore.RestoreConfirmationDialog
+import com.transferkit.client.restore.StagingRestorePipeline
 import com.transferkit.client.restore.VerifiedRestoreItem
 import com.transferkit.client.restore.isFileMediaRestoreCategory
 import com.transferkit.client.restore.ApkInstallApproval
@@ -880,32 +881,32 @@ class MainActivity : ComponentActivity() {
         restoreInboxStatus = "Відновлюю вибрані дані та перевіряю результат…"
         mediaExecutor.execute {
             val orderedItems = CalendarRestorer.parentFirstCalendarOrder(items)
+            var cleanupPending = 0
             val results = try {
                 orderedItems.map { item ->
-                    runCatching {
-                        restorerRegistry.restore(
-                            item,
-                            approval,
-                            RestoreContext(
-                                calendarDestinationId = calendarDestinationId,
-                                documentTreeUri = documentSelection?.uri,
-                            ),
-                        )
-                    }.getOrElse {
-                        com.transferkit.client.restore.RestoreItemResult(
-                            itemId = item.itemId,
-                            status = RestoreItemStatus.FAILED,
-                            errorReason = "RESTORE_FAILED",
-                        )
-                    }
+                    val outcome = StagingRestorePipeline.restoreOne(
+                        item = item,
+                        restore = { approvedItem ->
+                            restorerRegistry.restore(
+                                approvedItem,
+                                approval,
+                                RestoreContext(
+                                    calendarDestinationId = calendarDestinationId,
+                                    documentTreeUri = documentSelection?.uri,
+                                ),
+                            )
+                        },
+                        releaseAfterPostVerification = transferReceiver::recordPostVerifiedRestore,
+                    )
+                    // Release only this item's app-private staging payload immediately after its
+                    // adapter has reported destination post-verification. A later item failure
+                    // must not keep already-verified payloads occupying the staging volume.
+                    if (outcome.stagingCleanupPending) cleanupPending++
+                    outcome.result
                 }
             } finally {
                 restoreApprovalGate.revoke(approval)
             SafDocumentTreeAccess.releaseIfOwned(applicationContext, documentSelection)
-            }
-            val cleanupPending = orderedItems.zip(results).count { (item, result) ->
-                result.status == RestoreItemStatus.RESTORED &&
-                    !runCatching { transferReceiver.recordPostVerifiedRestore(item) }.getOrDefault(false)
             }
             runOnUiThread {
                 if (isDestroyed) return@runOnUiThread

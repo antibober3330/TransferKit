@@ -2,6 +2,16 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.18] - 2026-11-14
+
+Source-only development snapshot prepared for private GitHub `main`; no release tag. Android `versionCode` is 19. This remains an alpha and is not a production release.
+
+### Android restore integrity
+
+- Rehash each receiver-owned staging payload with a fixed-size buffer immediately before the restore adapter may mutate the destination; corruption fails as `FAILED_INTEGRITY`.
+- Release each item's private staging payload immediately after its adapter reports destination post-verification, instead of retaining already-restored items until the whole batch finishes.
+- Python suite: 178/178 passed. Kotlin unit suite: 168/168 passed; debug and AndroidTest APK assemblies succeeded. No phones were used. Per-item receive/restore wire handoff remains open.
+
 ## [0.1.0-alpha.17] - 2026-11-14
 
 Source-only development snapshot published to the private GitHub `main` branch as commit `923a6e669e5e0e9cd729e456d2eadcf411a48809`; no release tag. Android `versionCode` is 18. This remains an alpha and is not a production release.
