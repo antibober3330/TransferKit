@@ -1133,6 +1133,8 @@ class MainActivity : ComponentActivity() {
                 val result = settingsProvider.scanReadOnly()
                 val access = result.access
                 val shizukuStatus = when {
+                    access.shizukuReasonCode == "SHIZUKU_STATUS_UNAVAILABLE" ->
+                        "Не вдалося перевірити стан Shizuku; запит дозволу не надсилався"
                     !access.shizukuServiceAvailable -> "Shizuku service не підключений"
                     !access.shizukuPermissionGranted -> "Shizuku permission не надано"
                     else -> "Shizuku доступ підтверджений, але elevated settings операції ще не реалізовані"

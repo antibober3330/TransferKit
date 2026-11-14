@@ -66,6 +66,36 @@ class ShizukuPermissionMessageTest {
     }
 
     @Test
+    fun pingFailureIsUnknownAndDoesNotRequestPermission() {
+        val api = FakeShizukuApi(failPing = true)
+
+        val probe = ShizukuBridge(api, Build.VERSION_CODES.R).probe()
+        val request = ShizukuBridge(api, Build.VERSION_CODES.R).requestPermission(13)
+
+        assertEquals(ShizukuState.STATUS_UNAVAILABLE, probe.state)
+        assertEquals("SHIZUKU_STATUS_UNAVAILABLE", probe.reasonCode)
+        assertFalse(probe.serviceRunning)
+        assertEquals(ShizukuPermissionRequestResult.STATUS_UNAVAILABLE, request)
+        assertEquals(0, api.permissionChecks)
+        assertEquals(0, api.permissionRequests)
+    }
+
+    @Test
+    fun permissionCheckFailureIsUnknownAndDoesNotTriggerAnotherPrompt() {
+        val api = FakeShizukuApi(failPermissionCheck = true)
+
+        val probe = ShizukuBridge(api, Build.VERSION_CODES.R).probe()
+        val request = ShizukuBridge(api, Build.VERSION_CODES.R).requestPermission(14)
+
+        assertEquals(ShizukuState.STATUS_UNAVAILABLE, probe.state)
+        assertEquals("SHIZUKU_STATUS_UNAVAILABLE", probe.reasonCode)
+        assertTrue(probe.serviceRunning)
+        assertFalse(probe.permissionGranted)
+        assertEquals(ShizukuPermissionRequestResult.STATUS_UNAVAILABLE, request)
+        assertEquals(0, api.permissionRequests)
+    }
+
+    @Test
     fun alreadyGrantedPermissionIsReportedWithoutRepeatedPrompt() {
         val api = FakeShizukuApi(permissionResult = PackageManager.PERMISSION_GRANTED)
 
@@ -114,6 +144,8 @@ class ShizukuPermissionMessageTest {
         private val permissionResult: Int = PackageManager.PERMISSION_DENIED,
         private val preV11: Boolean = false,
         private val failRequest: Boolean = false,
+        private val failPing: Boolean = false,
+        private val failPermissionCheck: Boolean = false,
     ) : ShizukuApi {
         var pingCalls = 0
             private set
@@ -126,11 +158,13 @@ class ShizukuPermissionMessageTest {
 
         override fun pingBinder(): Boolean {
             pingCalls++
+            check(!failPing) { "synthetic ping failure" }
             return serviceRunning
         }
 
         override fun checkSelfPermission(): Int {
             permissionChecks++
+            check(!failPermissionCheck) { "synthetic permission query failure" }
             return permissionResult
         }
 

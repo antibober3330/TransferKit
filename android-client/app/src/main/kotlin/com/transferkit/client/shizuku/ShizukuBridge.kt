@@ -7,6 +7,7 @@ import rikka.shizuku.Shizuku
 enum class ShizukuState {
     UNSUPPORTED_API,
     SERVICE_NOT_RUNNING,
+    STATUS_UNAVAILABLE,
     PERMISSION_REQUIRED,
     AVAILABLE,
 }
@@ -24,6 +25,7 @@ enum class ShizukuPermissionRequestResult {
     REQUEST_SENT,
     UNSUPPORTED_API,
     SERVICE_NOT_RUNNING,
+    STATUS_UNAVAILABLE,
     PERMISSION_ALREADY_GRANTED,
     LEGACY_SERVER_UNSUPPORTED,
     REQUEST_FAILED,
@@ -51,6 +53,8 @@ internal fun shizukuPermissionRequestMessage(result: ShizukuPermissionRequestRes
         "Підтримка Shizuku недоступна на цьому Android API."
     ShizukuPermissionRequestResult.SERVICE_NOT_RUNNING ->
         "Shizuku не запущено. Запусти його окремо; TransferKit не стартує сервіс сам."
+    ShizukuPermissionRequestResult.STATUS_UNAVAILABLE ->
+        "Не вдалося перевірити стан Shizuku. Перевір його сервіс і повтори перевірку; запит дозволу не надсилався."
     ShizukuPermissionRequestResult.PERMISSION_ALREADY_GRANTED ->
         "Дозвіл Shizuku вже надано, але elevated settings операції ще не реалізовані."
     ShizukuPermissionRequestResult.LEGACY_SERVER_UNSUPPORTED ->
@@ -80,7 +84,9 @@ internal class ShizukuBridge(
                 permissionGranted = false,
             )
         }
-        val serviceRunning = runCatching { api.pingBinder() }.getOrDefault(false)
+        val serviceRunning = runCatching { api.pingBinder() }.getOrElse {
+            return statusUnavailable(serviceRunning = false)
+        }
         if (!serviceRunning) {
             return ShizukuProbe(
                 state = ShizukuState.SERVICE_NOT_RUNNING,
@@ -91,7 +97,9 @@ internal class ShizukuBridge(
         }
         val permissionGranted = runCatching {
             api.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-        }.getOrDefault(false)
+        }.getOrElse {
+            return statusUnavailable(serviceRunning = true)
+        }
         return if (permissionGranted) {
             ShizukuProbe(
                 state = ShizukuState.AVAILABLE,
@@ -115,6 +123,7 @@ internal class ShizukuBridge(
         return when (current.state) {
             ShizukuState.UNSUPPORTED_API -> ShizukuPermissionRequestResult.UNSUPPORTED_API
             ShizukuState.SERVICE_NOT_RUNNING -> ShizukuPermissionRequestResult.SERVICE_NOT_RUNNING
+            ShizukuState.STATUS_UNAVAILABLE -> ShizukuPermissionRequestResult.STATUS_UNAVAILABLE
             ShizukuState.AVAILABLE -> ShizukuPermissionRequestResult.PERMISSION_ALREADY_GRANTED
             ShizukuState.PERMISSION_REQUIRED -> {
                 if (runCatching { api.isPreV11() }.getOrDefault(true)) {
@@ -131,4 +140,11 @@ internal class ShizukuBridge(
     fun userWarning(): String =
         "Shizuku є опційним. Його потрібно окремо запустити й авторизувати; це не надає root " +
             "і не гарантує доступ до кожного API. TransferKit поки не виконує elevated operations."
+
+    private fun statusUnavailable(serviceRunning: Boolean) = ShizukuProbe(
+        state = ShizukuState.STATUS_UNAVAILABLE,
+        reasonCode = "SHIZUKU_STATUS_UNAVAILABLE",
+        serviceRunning = serviceRunning,
+        permissionGranted = false,
+    )
 }

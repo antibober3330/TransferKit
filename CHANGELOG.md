@@ -2,6 +2,19 @@
 
 This file tracks user-visible and protocol-level changes. The current project is an alpha and is not a production release.
 
+## [0.1.0-alpha.11] - 2026-11-14
+
+Source-only development snapshot; no release tag. Android `versionCode` is 12. This remains an alpha and is not a production release.
+
+### Android
+
+- Shizuku probing now distinguishes an unknown/unavailable status from a confirmed missing permission. If the service or permission check throws, TransferKit shows a retry-oriented status and does not send another permission request.
+- Added fail-closed regressions for binder probe and permission-check failures.
+
+### Validation
+
+- Android unit suite: 136/136 passed; debug and AndroidTest APK assemblies succeeded. No phones were used.
+
 ## [0.1.0-alpha.10] - 2026-11-14
 
 Source-only development snapshot published to private GitHub `main` as commit `6545545c41cd3ca4218ea432a5afc3bf8dd7f241`; no release tag. Android `versionCode` is 11. This remains an alpha and is not a production release.
